@@ -6,17 +6,17 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  PYTHON_VERSION: "3.12"
+  APP_NAME: "SquidManager"
+  SCRIPT_NAME: "squid_manager.py"
+
 jobs:
   build-windows:
     runs-on: windows-latest
 
     permissions:
       contents: read
-
-    env:
-      PYTHON_VERSION: "3.12
-      APP_NAME: "SquidManager"
-      SCRIPT_NAME: "squid_manager.py"
 
     steps:
       - name: Repository auschecken

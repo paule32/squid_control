@@ -6,3 +6,5 @@ squid_control_center_v5.py
 squid_control_center_v6.py
 squid_control_center_v7.py
 *.bak
+dist/webengine_crash.log
+dist/squid_manager.pyc

@@ -1,7 +1,13 @@
 
 --- PYTHON UNCAUGHT EXCEPTION ---
 Traceback (most recent call last):
-  File "T:\VM\VPN\squid\squid_control_center_v8.py", line 1125, in toggle_theme
-    self._apply_theme()
-    ^^^^^^^^^^^^^^^^^
-AttributeError: 'HelpMainWindow' object has no attribute '_apply_theme'
+  File "T:\VM\VPN\squid\squid_control_center_v8.py", line 2335, in add_row
+    (self.ed_name.text().strip(), self.ed_weekdays.text().strip(), self.ed_start.text().strip(),
+                                  ^^^^^^^^^^^^^^^^
+AttributeError: 'TimeWindowsTab' object has no attribute 'ed_weekdays'. Did you mean: 'cb_weekdays'?
+Windows fatal exception: access violation
+
+Current thread 0x000042c4 (most recent call first):
+  <no Python frame>
+base=T:\VM\VPN\squid
+QtWebEngineProcess=[]

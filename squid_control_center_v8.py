@@ -48,7 +48,7 @@ from html.parser     import HTMLParser
 
 from PyQt5.QtCore    import (
     QObject, Qt, QTimer, qInstallMessageHandler, QEvent, QSortFilterProxyModel,
-    QUrl,
+    QUrl, QPoint,
 )
 from PyQt5.QtGui     import (
     QStandardItemModel, QStandardItem, QPalette, QColor, QFont,
@@ -59,9 +59,10 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QComboBox, QTextEdit, QCheckBox, QTabBar,
     QFileDialog, QSpinBox, QHeaderView, QAbstractItemView, QSizePolicy,
     QDialog, QStyle, QTreeView, QStatusBar, QToolBar, QPlainTextEdit,
+    QRadioButton, QButtonGroup, QGroupBox, QScrollArea, 
 )
 from PyQt5.QtWebEngineWidgets import (
-    QWebEngineView, QWebEngineScript
+    QWebEngineView, QWebEngineScript,
 )
 
 # ---------------------------------------------------------------------------
@@ -340,6 +341,125 @@ else:
 
 def  _tr(msgid: str) -> str: return _I18N._tr(msgid)
 def _css(msgid: str) -> str: return _QCSS._tr(msgid)
+
+
+class TimeRadioPopup(QWidget):
+    def __init__(self, parent_combo=None):
+        super().__init__(None, Qt.Popup)
+        self.parent_combo = parent_combo
+        self.selected_text = ""
+
+        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+        self.setMinimumWidth(420)
+        self.setMinimumHeight(320)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(6, 6, 6, 6)
+        main_layout.setSpacing(6)
+
+        content_layout = QHBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
+
+        # Eine gemeinsame ButtonGroup => es ist immer nur EIN Radiobutton aktiv
+        self.button_group = QButtonGroup(self)
+        self.button_group.setExclusive(True)
+        self.button_group.buttonClicked.connect(self._on_button_clicked)
+
+        times = self._build_times()
+
+        left_times = times[:48]   # 00:00 bis 11:45
+        right_times = times[48:]  # 12:00 bis 23:45
+
+        left_group = self._create_group("00 - 11 Uhr", left_times)
+        right_group = self._create_group("12 - 23 Uhr", right_times)
+
+        content_layout.addWidget(left_group)
+        content_layout.addWidget(right_group)
+
+        main_layout.addLayout(content_layout)
+
+    def _build_times(self):
+        result = []
+        for hour in range(24):
+            for minute in (0, 15, 30, 45):
+                result.append(f"{hour:02d}:{minute:02d} Uhr")
+        return result
+
+    def _create_group(self, title, items):
+        group_box = QGroupBox(title)
+        group_layout = QVBoxLayout(group_box)
+        group_layout.setContentsMargins(4, 4, 4, 4)
+
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(4, 4, 4, 4)
+        container_layout.setSpacing(2)
+
+        for text in items:
+            rb = QRadioButton(text)
+            self.button_group.addButton(rb)
+            container_layout.addWidget(rb)
+
+        container_layout.addStretch(1)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(container)
+
+        group_layout.addWidget(scroll)
+        return group_box
+
+    def _on_button_clicked(self, button):
+        self.selected_text = button.text()
+
+        if self.parent_combo is not None:
+            self.parent_combo.set_current_text(self.selected_text)
+
+        self.hide()
+
+    def set_checked_text(self, text):
+        for btn in self.button_group.buttons():
+            if btn.text() == text:
+                btn.setChecked(True)
+                self.selected_text = text
+                return
+
+
+class TimeComboBox(QComboBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.setEditable(True)
+        self.lineEdit().setReadOnly(True)
+        self.lineEdit().setPlaceholderText("Zeit auswählen ...")
+        self._text = ""
+
+        self.popup_widget = TimeRadioPopup(self)
+
+    def showPopup(self):
+        popup_pos = self.mapToGlobal(QPoint(0, self.height()))
+        self.popup_widget.move(popup_pos)
+        self.popup_widget.resize(max(self.width() * 2, 420), 320)
+        self.popup_widget.set_checked_text(self._text)
+        self.popup_widget.show()
+        self.popup_widget.raise_()
+        self.popup_widget.activateWindow()
+
+    def hidePopup(self):
+        self.popup_widget.hide()
+        super().hidePopup()
+
+    def set_current_text(self, text):
+        self._text = text
+        self.setEditText(text)
+
+    def text(self):
+        return self._text
+
+    def currentText(self):
+        return self._text
+
 
 def hash_password(password: str) -> str:
     if HAS_BCRYPT:
@@ -2107,22 +2227,72 @@ class NetworksTab(BaseCrudTab):
         rows = DB.fetchall("SELECT id, name, cidr, is_enabled, comment FROM networks ORDER BY name")
         self.fill_table(self.table, ["ID", "Name", "CIDR", "Aktiv", "Kommentar"], rows)
 
+class CheckableComboBox(QComboBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.setModel(QStandardItemModel(self))
+        self.view().pressed.connect(self.handle_item_pressed)
+        self.setEditable(True)
+        self.lineEdit().setReadOnly(True)
+        self.lineEdit().setPlaceholderText("Bitte auswählen ...")
+        self.update_text()
+
+    def add_check_item(self, text, checked=False):
+        item = QStandardItem(text)
+        item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+        item.setData(Qt.Checked if checked else Qt.Unchecked, Qt.CheckStateRole)
+        self.model().appendRow(item)
+        self.update_text()
+
+    def handle_item_pressed(self, index):
+        item = self.model().itemFromIndex(index)
+        if item.checkState() == Qt.Checked:
+            item.setCheckState(Qt.Unchecked)
+        else:
+            item.setCheckState(Qt.Checked)
+        self.update_text()
+
+    def checked_items(self):
+        result = []
+        for row in range(self.model().rowCount()):
+            item = self.model().item(row)
+            if item.checkState() == Qt.Checked:
+                result.append(item.text())
+        return result
+
+    def update_text(self):
+        items = self.checked_items()
+        self.lineEdit().setText(", ".join(items))
 
 class TimeWindowsTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
         root = QVBoxLayout()
         form = QHBoxLayout()
-        self.ed_name = QLineEdit()
-        self.ed_weekdays = QLineEdit()
-        self.ed_start = QLineEdit()
-        self.ed_end = QLineEdit()
-        self.ed_comment = QLineEdit()
+        
+        self.ed_name     = QLineEdit()
+        self.cb_weekdays = CheckableComboBox()
+        self.cb_weekdays.add_check_item("Montag")
+        self.cb_weekdays.add_check_item("Dienstag")
+        self.cb_weekdays.add_check_item("Mittwoch")
+        self.cb_weekdays.add_check_item("Donnerstag")
+        self.cb_weekdays.add_check_item("Freitag")
+        self.cb_weekdays.add_check_item("Samstag")
+        self.cb_weekdays.add_check_item("Sonntag")
+
+        self.cb_start    = TimeComboBox()
+        self.cb_end      = TimeComboBox()
+        self.ed_comment  = QLineEdit()
+        
         self.chk_enabled = QCheckBox("Aktiv")
         self.chk_enabled.setChecked(True)
-        for w in [QLabel("Name"), self.ed_name, QLabel("Wochentage"), self.ed_weekdays,
-                  QLabel("Von"), self.ed_start, QLabel("Bis"), self.ed_end,
-                  QLabel("Kommentar"), self.ed_comment, self.chk_enabled]:
+        
+        for w in [QLabel("Name"      ), self.ed_name,
+                  QLabel("Wochentage"), self.cb_weekdays,
+                  QLabel("Von"       ), self.cb_start,
+                  QLabel("Bis"       ), self.cb_end,
+                  QLabel("Kommentar" ), self.ed_comment, self.chk_enabled]:
             form.addWidget(w)
             
         form2 = QHBoxLayout()
@@ -3231,18 +3401,18 @@ class MainWindow(QMainWindow):
         self.resize(1024, 720)
 
         tabs = QTabWidget()
-        tabs.addTab(DashboardTab(), "Dashboard")
-        tabs.addTab(UrlFilterTab(), "URL Filter")
-        tabs.addTab(ReplacementPagesTab(), "Ersatz-Pages")
-        tabs.addTab(UsersTab(), "Benutzer")
-        tabs.addTab(GroupsTab(), "Gruppen")
-        tabs.addTab(NetworksTab(), "Netzwerke")
-        tabs.addTab(TimeWindowsTab(), "Zeitfenster")
-        tabs.addTab(BehaviorRulesTab(), "Verhaltensmuster")
-        tabs.addTab(LiveClientsTab(), "Live Clients")
-        tabs.addTab(LogsTab(), "Logs")
-        tabs.addTab(StatisticsTab(), "Statistiken")
-        tabs.addTab(ConfigTab(), "Konfiguration")
+        tabs.addTab(DashboardTab()        , "Dashboard")
+        tabs.addTab(UrlFilterTab()        , "URL Filter")
+        tabs.addTab(ReplacementPagesTab() , "Ersatz-Pages")
+        tabs.addTab(UsersTab()            , "Benutzer")
+        tabs.addTab(GroupsTab()           , "Gruppen")
+        tabs.addTab(NetworksTab()         , "Netzwerke")
+        tabs.addTab(TimeWindowsTab()      , "Zeitfenster")
+        tabs.addTab(BehaviorRulesTab()    , "Verhaltensmuster")
+        tabs.addTab(LiveClientsTab()      , "Live Clients")
+        tabs.addTab(LogsTab()             , "Logs")
+        tabs.addTab(StatisticsTab()       , "Statistiken")
+        tabs.addTab(ConfigTab()           , "Konfiguration")
         self.setCentralWidget(tabs)
 
         self.f1filter = F1Filter(self)
@@ -3253,6 +3423,66 @@ class MainWindow(QMainWindow):
         self.autosave_timer = QTimer(self)
         self.autosave_timer.timeout.connect(self.autosave_everything)
         self.restart_autosave_timer()
+        
+        self._create_menubar()
+        
+    def _create_menubar(self):
+        menubar = self.menuBar()
+
+        # Schrift setzen
+        menubar.setFont(QFont("Arial", 11))
+
+        # Style setzen
+        menubar.setStyleSheet(f"""
+        QMenuBar {{
+            background-color: navy;
+            color: yellow;
+            font: 11pt "Arial";
+        }}
+        QMenuBar::item {{
+            background-color: transparent;
+            color: yellow;
+            padding: 6px 12px;
+        }}
+        QMenuBar::item:selected {{
+            background-color: #1e3a5f;
+        }}
+        QMenu {{
+            background-color: navy;
+            color: yellow;
+            border: 1px solid #3f5f8f;
+            font: 11pt "Arial";
+        }}
+        QMenu::item {{
+            padding: 6px 24px 6px 24px;
+            background-color: transparent;
+            color: yellow;
+        }}
+        QMenu::item:selected {{
+            background-color: #1e3a5f;
+        }}
+        """)
+
+        # Menü "Datei"
+        menu_datei = menubar.addMenu("Datei")
+
+        action_beenden = QAction("Beenden", self)
+        action_beenden.triggered.connect(self.close)
+        menu_datei.addAction(action_beenden)
+
+        # Menü "Hilfe"
+        menu_hilfe = menubar.addMenu("Hilfe")
+
+        action_ueber = QAction("Über", self)
+        action_ueber.triggered.connect(self.show_about)
+        menu_hilfe.addAction(action_ueber)
+
+    def show_about(self):
+        QMessageBox.about(
+            self,
+            "Über",
+            "Dies ist ein Beispiel für eine Menüleiste mit Untermenüs."
+        )
 
     def restart_autosave_timer(self):
         minutes = int(DB.setting("autosave_minutes", "15") or "15")

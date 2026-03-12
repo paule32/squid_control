@@ -1,0 +1,7 @@
+
+--- PYTHON UNCAUGHT EXCEPTION ---
+Traceback (most recent call last):
+  File "T:\VM\VPN\squid\squid_control_center_v8.py", line 1125, in toggle_theme
+    self._apply_theme()
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'HelpMainWindow' object has no attribute '_apply_theme'

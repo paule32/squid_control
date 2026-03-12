@@ -1,0 +1,6 @@
+1712345678.123 200 192.168.0.10 TCP_MISS/200 1024 GET http://facebook.com admin DIRECT/93.184.216.34 text/html
+1712345690.500 180 192.168.0.11 TCP_MISS/200 2048 GET http://casino.example guest DIRECT/192.168.0.2 text/html
+1712345701.210 220 192.168.0.10 TCP_MISS/200 4096 GET http://news.example.org/article admin DIRECT/198.51.100.5 text/html
+1712345710.210 220 192.168.0.10 TCP_MISS/200 4096 GET http://facebook.com/profile admin DIRECT/198.51.100.6 text/html
+1712345720.210 220 192.168.0.10 TCP_MISS/200 4096 GET http://facebook.com/messages admin DIRECT/198.51.100.7 text/html
+1712345730.210 240 192.168.0.15 TCP_MISS/200 1024 GET http://example.org helpdesk DIRECT/198.51.100.8 text/html

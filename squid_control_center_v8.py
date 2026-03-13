@@ -89,6 +89,72 @@ URL_CATEGORIES = [
     "sonstiges",
 ]
 
+CSS_PILLOW_BUTTON = f"""
+QPushButton {{
+    color: white;
+    font-family: Arial;
+    font-size: 11pt;
+    font-weight: bold;
+
+    padding: 8px 18px;
+    border-radius: 14px;
+    border: 1px solid #1e3c64;
+
+    background: qlineargradient(
+        x1:0, y1:0,
+        x2:0, y2:1,
+        stop:0.00 #4f76a6,
+        stop:0.18 #416898,
+        stop:0.45 #2f5587,
+        stop:0.50 #234777,
+        stop:0.55 #2f5587,
+        stop:0.82 #416898,
+        stop:1.00 #547dac
+    );
+}}
+QPushButton:hover {{
+    border: 1px solid #355f93;
+
+    background: qlineargradient(
+        x1:0, y1:0,
+        x2:0, y2:1,
+        stop:0.00 #5c84b5,
+        stop:0.18 #4c74a5,
+        stop:0.45 #396094,
+        stop:0.50 #2d5286,
+        stop:0.55 #396094,
+        stop:0.82 #4c74a5,
+        stop:1.00 #6a90bf
+    );
+}}
+QPushButton:pressed {{
+    padding-top:9px;
+    padding-bottom:7px;
+    border:1px solid #1a3658;
+
+    background: qlineargradient(
+        x1:0, y1:0,
+        x2:0, y2:1,
+        stop:0.00 #213f6b,
+        stop:0.25 #2b4f83,
+        stop:0.50 #3b659c,
+        stop:0.75 #2b4f83,
+        stop:1.00 #1f3c64
+    );
+}}
+QPushButton:disabled {{
+    color:#cfd6de;
+    border:1px solid #6c7d92;
+
+    background: qlineargradient(
+        x1:0, y1:0,
+        x2:0, y2:1,
+        stop:0.00 #8da0b5,
+        stop:0.50 #7c90a6,
+        stop:1.00 #6c8096
+    );
+}}"""
+
 @dataclass
 class TocNode:
     title: str
@@ -342,6 +408,33 @@ else:
 def  _tr(msgid: str) -> str: return _I18N._tr(msgid)
 def _css(msgid: str) -> str: return _QCSS._tr(msgid)
 
+def update_selected_row_font(table):
+    # zuerst alle Items normal setzen
+    normal_font = QFont("Arial", 10)
+    normal_font.setBold(False)
+    
+    bold_font = QFont("Arial", 10)
+    bold_font.setBold(True)
+    
+    for row in range(table.rowCount()):
+        for col in range(table.columnCount()):
+            item = table.item(row, col)
+            if item is not None:
+                item.setFont(normal_font)
+    
+    # selektierte Zeilen fett setzen
+    selected_rows = set(index.row() for index in table.selectedIndexes())
+    for row in selected_rows:
+        for col in range(table.columnCount()):
+            item = table.item(row, col)
+            if item is not None:
+                item.setFont(bold_font)
+
+class PillowButtonBlue(QPushButton):
+    def __init__(self, parent=None, text=""):
+        super().__init__(parent)
+        self.setText(text)
+        self.setStyleSheet(CSS_PILLOW_BUTTON)
 
 class TimeRadioPopup(QWidget):
     def __init__(self, parent_combo=None):
@@ -657,17 +750,33 @@ def decompile_chm_windows(chm_path: str, out_dir: str) -> bool:
         print("hh.exe not found !")
         return False
     try:
-        p = subprocess.Popen(
-            [hh, "-decompile", out_dir, chm_path],
-            #check  = True,
-            text   = True,
-            stdout = subprocess.PIPE,
-            stderr = subprocess.PIPE
-        )
-        out, err = p.communicate(timeout=60)
-        if p.returncode != 0:
-            raise RuntimeError(f"hh.exe failed ({p.returncode}):\n{err}")
-        return True
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
+        
+            p = subprocess.Popen(
+                [hh, "-decompile", out_dir, chm_path],
+                creationflags  = subprocess.CREATE_NO_WINDOW,
+                startupinfo    = startupinfo,
+                capture_output = True,
+                text           = True,
+                stdout         = subprocess.PIPE,
+                stderr         = subprocess.PIPE
+            )
+            out, err = p.communicate(timeout=60)
+            if p.returncode != 0:
+                raise RuntimeError(f"hh.exe failed ({p.returncode}):\n{err}")
+            return True
+        else:
+            content = "CHM Help is only available under Microsoft Windows"
+            dlg = ErrorMessage(
+                title    = "Laufzeitfehler",
+                message  = content,
+                log_path = LOG,
+                parent   = MAINWIN
+            )
+            dlg.exec_()
+            return False
     except Exception as e:
         print(e)
         return False
@@ -958,7 +1067,6 @@ class HelpMainWindow(QMainWindow):
                 self.open_local(first)
 
     # -------- Contents / Index load --------
-
     def load_contents(self, hhc_path: str):
         self.contents_model.removeRows(0, self.contents_model.rowCount())
         toc_root = parse_hh_file(hhc_path)
@@ -1674,7 +1782,7 @@ class DashboardTab(BaseCrudTab):
             ("Konfiguration testen", self.test_config),
             ("Aktualisieren", self.refresh),
         ]:
-            b = QPushButton(label)
+            b = PillowButtonBlue(self, label)
             b.clicked.connect(handler)
             btnhlay.addWidget(b)
         
@@ -1715,8 +1823,33 @@ class DashboardTab(BaseCrudTab):
 
     def _run_sc(self, action):
         try:
-            result = subprocess.run(["sc", action, self.service_name()], capture_output=True, text=True)
-            return result.stdout + "\n" + result.stderr
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
+            
+                p = subprocess.Popen(
+                    ["sc", action, self.service_name()],
+                    creationflags  = subprocess.CREATE_NO_WINDOW,
+                    startupinfo    = startupinfo,
+                    capture_output = True,
+                    text           = True,
+                    stdout         = subprocess.PIPE,
+                    stderr         = subprocess.PIPE
+                )
+                out, err = p.communicate(timeout=60)
+                if p.returncode != 0:
+                    raise RuntimeError(f"SC failed ({p.returncode}):\n{err}")
+                return p.stdout + "\n" + p.stderr
+            else:
+                content = "Squid is only available under Microsoft Windows"
+                dlg = ErrorMessage(
+                    title    = "Laufzeitfehler",
+                    message  = content,
+                    log_path = LOG,
+                    parent   = MAINWIN
+                )
+                dlg.exec_()
+                return False
         except Exception as e:
             return str(e)
 
@@ -1737,30 +1870,111 @@ class DashboardTab(BaseCrudTab):
 
     def reload_service(self):
         try:
-            result = subprocess.run([self.squid_binary(), "-k", "reconfigure", "-f", self.squid_conf_path()], capture_output=True, text=True)
-            self.message("Reload", result.stdout + "\n" + result.stderr)
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
+            
+                p = subprocess.Popen(
+                    [self.squid_binary(), "-k", "reconfigure", "-f", self.squid_conf_path()],
+                    capture_output = True,
+                    text           = True,
+                    creationflags  = subprocess.CREATE_NO_WINDOW,
+                    startupinfo    = startupinfo,
+                    stdout         = subprocess.PIPE,
+                    stderr         = subprocess.PIPE
+                )
+                out, err = p.communicate(timeout=60)
+                if p.returncode != 0:
+                    raise RuntimeError(f"Squid failed ({p.returncode}):\n{err}")
+                self.message("Reload", p.stdout + "\n" + p.stderr)
+                self.refresh()
+                return True
+            else:
+                content = "Squid is only available under Microsoft Windows"
+                dlg = ErrorMessage(
+                    title    = "Laufzeitfehler",
+                    message  = content,
+                    log_path = LOG,
+                    parent   = MAINWIN
+                )
+                dlg.exec_()
+                return False
         except Exception as e:
             self.warn("Fehler", str(e))
-        self.refresh()
+            return False
 
     def test_config(self):
         try:
-            result = subprocess.run([self.squid_binary(), "-k", "parse", "-f", self.squid_conf_path()], capture_output=True, text=True)
-            self.message("Konfigurationstest", result.stdout + "\n" + result.stderr)
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
+                
+                p = subprocess.Popen(
+                    [self.squid_binary(), "-k", "parse", "-f", self.squid_conf_path()],
+                    capture_output = True,
+                    text           = True,
+                    creationflags  = subprocess.CREATE_NO_WINDOW,
+                    startupinfo    = startupinfo,
+                    stdout         = subprocess.PIPE,
+                    stderr         = subprocess.PIPE
+                )
+                out, err = p.communicate(timeout=60)
+                if p.returncode != 0:
+                    raise RuntimeError(f"Squid failed ({p.returncode}):\n{err}")
+                self.message("Konfigurationstest", p.stdout + "\n" + p.stderr)
+                return True
+            else:
+                content = "Squid is only available under Microsoft Windows"
+                dlg = ErrorMessage(
+                    title    = "Laufzeitfehler",
+                    message  = content,
+                    log_path = LOG,
+                    parent   = MAINWIN
+                )
+                dlg.exec_()
+                return False
         except Exception as e:
             self.warn("Fehler", str(e))
+            return False
 
     def refresh(self):
         try:
-            result = subprocess.run(["sc", "query", self.service_name()], capture_output=True, text=True)
-            if "RUNNING" in result.stdout:
-                self.service_led.set_green()
-            elif "STOPPED" in result.stdout:
-                self.service_led.set_red()
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
+                
+                p = subprocess.Popen(
+                    ["sc", "query", self.service_name()],
+                    capture_output = True,
+                    text           = True,
+                    creationflags  = subprocess.CREATE_NO_WINDOW,
+                    startupinfo    = startupinfo,
+                    stdout         = subprocess.PIPE,
+                    stderr         = subprocess.PIPE
+                )
+                out, err = p.communicate(timeout=60)
+                if p.returncode != 0:
+                    raise RuntimeError(f"Squid failed ({p.returncode}):\n{err}")
+                
+                if "RUNNING" in p.stdout:
+                    self.service_led.set_green()
+                elif "STOPPED" in p.stdout:
+                    self.service_led.set_red()
+                else:
+                    self.service_led.set_yellow()
             else:
-                self.service_led.set_yellow()
+                content = "Squid is only available under Microsoft Windows"
+                dlg = ErrorMessage(
+                    title    = "Laufzeitfehler",
+                    message  = content,
+                    log_path = LOG,
+                    parent   = MAINWIN
+                )
+                dlg.exec_()
+                return False
         except Exception:
             self.service_led.set_red()
+            return False
 
         access_log_path = Path(DB.setting("access_log_path", str(DEFAULT_ACCESS_LOG)))
         recent = [parse_access_log_line(x) for x in read_tail_lines(access_log_path, 500)]
@@ -1808,7 +2022,7 @@ class ReplacementPagesTab(BaseCrudTab):
         self.cb_category.addItems([""] + URL_CATEGORIES)
         self.ed_file     = QLineEdit()
         self.ed_comment  = QLineEdit()
-        self.ed_comment.setMaximumWidth(600)
+        self.ed_comment.setMaximumWidth(500)
         self.chk_enabled = QCheckBox("Aktiv")
         self.chk_enabled.setChecked(True)
 
@@ -1824,13 +2038,14 @@ class ReplacementPagesTab(BaseCrudTab):
         form2 = QHBoxLayout()
         for w2 in [QLabel("Kommentar"), self.ed_comment, self.chk_enabled]:
             form2.addWidget(w2)
+        form2.addStretch()
 
         form3 = QHBoxLayout()
         for text, fn in [("Hinzufügen"   , self.add_row),
                          ("Aktualisieren", self.update_selected),
                          ("Löschen"      , self.delete_selected),
                          ("Neu laden"    , self.load)]:
-            b = QPushButton(text)
+            b = PillowButtonBlue(self, text)
             b.clicked.connect(fn)
             form3.addWidget(b)
 
@@ -1893,6 +2108,7 @@ class ReplacementPagesTab(BaseCrudTab):
         row = self.table.currentRow()
         if row < 0:
             return
+        update_selected_row_font(self.table)
         self.ed_name.setText(item_text(self.table, row, 1))
         idx = self.cb_category.findText(item_text(self.table, row, 2))
         self.cb_category.setCurrentIndex(idx if idx >= 0 else 0)
@@ -1911,25 +2127,41 @@ class UrlFilterTab(BaseCrudTab):
         form = QHBoxLayout()
 
         self.ed_pattern     = QLineEdit()
+        self.pb_help        = QPushButton("Hilfe")
         self.cb_category    = QComboBox()
         self.cb_category.addItems(URL_CATEGORIES)
         self.cb_replacement = QComboBox()
         self.ed_comment     = QLineEdit()
-        self.ed_comment.setMaximumWidth(800)
+        self.ed_comment.setMaximumWidth(500)
         self.chk_regex      = QCheckBox("Regex")
         self.chk_enabled    = QCheckBox("Aktiv")
         self.chk_enabled.setChecked(True)
         
-        form2 = QHBoxLayout()
-        for w2 in [QLabel("Muster"     ), self.ed_pattern,
-                  QLabel("Kategorie"  ), self.cb_category,
-                  QLabel("Ersatz-Page"), self.cb_replacement]:
+        form1 = QHBoxLayout()
+        for w1 in [QLabel("Muster"     ), self.ed_pattern]:
+            if isinstance(w1, QLineEdit):
+                w1.setMaximumWidth(600)
+            form1.addWidget(w1)
+        form1.addWidget(self.pb_help)
+        form1.addStretch()
+        
+        form2 = QHBoxLayout()        
+        for w2 in [QLabel("Kategorie"  ), self.cb_category,
+                  QLabel("Ersatz-Page" ), self.cb_replacement]:
+            if isinstance(w2, (QLabel, QComboBox)):
+                w2.setMaximumWidth(156)
+            elif not isinstance(w2, QComboBox):
+                w2.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             form2.addWidget(w2)
+        form2.addStretch()
         
         form3 = QHBoxLayout()
         for w3 in [QLabel("Kommentar"  ), self.ed_comment,
                    self.chk_regex, self.chk_enabled]:
+            if isinstance(w3, (QLabel, QCheckBox)):
+                w3.setMaximumWidth(100)
             form3.addWidget(w3)
+        form3.addStretch()
             
         form4 = QHBoxLayout()
         for text, fn in [("Hinzufügen"   , self.add_row),
@@ -1937,11 +2169,12 @@ class UrlFilterTab(BaseCrudTab):
                          ("Löschen"      , self.delete_selected),
                          ("Export"       , self.export_file),
                          ("Neu laden"    , self.load)]:
-            b = QPushButton(text)
+            b = PillowButtonBlue(self, text)
             b.clicked.connect(fn)
             form4.addWidget(b)
 
         root.addLayout(form)
+        root.addLayout(form1)
         root.addLayout(form2)
         root.addLayout(form3)
         root.addLayout(form4)
@@ -1986,6 +2219,7 @@ class UrlFilterTab(BaseCrudTab):
         self.cb_replacement.setCurrentIndex(idx if idx >= 0 else 0)
 
     def clear_form(self):
+        update_selected_row_font(self.table)
         self.ed_pattern.clear()
         self.ed_comment.clear()
         self.chk_regex.setChecked(False)
@@ -2028,6 +2262,7 @@ class UrlFilterTab(BaseCrudTab):
         row = self.table.currentRow()
         if row < 0:
             return
+        update_selected_row_font(self.table)
         self.ed_pattern.setText(item_text(self.table, row, 1))
         idx = self.cb_category.findText(item_text(self.table, row, 2))
         self.cb_category.setCurrentIndex(idx if idx >= 0 else 0)
@@ -2075,7 +2310,7 @@ class GroupsTab(BaseCrudTab):
                          ("Aktualisieren", self.update_selected),
                          ("Löschen", self.delete_selected),
                          ("Neu laden", self.load)]:
-            b = QPushButton(text)
+            b = PillowButtonBlue(self, text)
             b.clicked.connect(fn)
             form2.addWidget(b)
             
@@ -2097,6 +2332,7 @@ class GroupsTab(BaseCrudTab):
         self.load()
 
     def clear_form(self):
+        update_selected_row_font(self.table)
         self.ed_name.clear()
         self.ed_comment.clear()
         self.chk_enabled.setChecked(True)
@@ -2127,6 +2363,7 @@ class GroupsTab(BaseCrudTab):
         row = self.table.currentRow()
         if row < 0:
             return
+        update_selected_row_font(self.table)
         self.ed_name.setText(item_text(self.table, row, 1))
         self.chk_enabled.setChecked(item_text(self.table, row, 2) == "1")
         self.ed_comment.setText(item_text(self.table, row, 3))
@@ -2153,7 +2390,7 @@ class NetworksTab(BaseCrudTab):
                          ("Aktualisieren", self.update_selected),
                          ("Löschen"      , self.delete_selected),
                          ("Neu laden"    , self.load)]:
-            b = QPushButton(text)
+            b = PillowButtonBlue(self, text)
             b.clicked.connect(fn)
             form2.addWidget(b)
             
@@ -2175,6 +2412,7 @@ class NetworksTab(BaseCrudTab):
         self.load()
 
     def clear_form(self):
+        update_selected_row_font(self.table)
         self.ed_name.clear()
         self.ed_cidr.clear()
         self.ed_comment.clear()
@@ -2218,6 +2456,7 @@ class NetworksTab(BaseCrudTab):
         row = self.table.currentRow()
         if row < 0:
             return
+        update_selected_row_font(self.table)
         self.ed_name.setText(item_text(self.table, row, 1))
         self.ed_cidr.setText(item_text(self.table, row, 2))
         self.chk_enabled.setChecked(item_text(self.table, row, 3) == "1")
@@ -2300,7 +2539,7 @@ class TimeWindowsTab(BaseCrudTab):
                          ("Aktualisieren", self.update_selected),
                          ("Löschen"      , self.delete_selected),
                          ("Neu laden"    , self.load)]:
-            b = QPushButton(text)
+            b = PillowButtonBlue(self, text)
             b.clicked.connect(fn)
             form2.addWidget(b)
             
@@ -2323,6 +2562,7 @@ class TimeWindowsTab(BaseCrudTab):
         self.load()
 
     def clear_form(self):
+        update_selected_row_font(self.table)
         self.ed_name.clear()
         self.ed_weekdays.clear()
         self.ed_start.clear()
@@ -2358,6 +2598,7 @@ class TimeWindowsTab(BaseCrudTab):
         row = self.table.currentRow()
         if row < 0:
             return
+        update_selected_row_font(self.table)
         self.ed_name.setText(item_text(self.table, row, 1))
         self.ed_weekdays.setText(item_text(self.table, row, 2))
         self.ed_start.setText(item_text(self.table, row, 3))
@@ -2412,7 +2653,7 @@ class UsersTab(BaseCrudTab):
                          ("Löschen"      , self.delete_selected),
                          ("Block switch" , self.toggle_block),
                          ("Neu laden"    , self.load)]:
-            b = QPushButton(text)
+            b = PillowButtonBlue(self, text)
             b.clicked.connect(fn)
             form4.addWidget(b)
 
@@ -2457,6 +2698,7 @@ class UsersTab(BaseCrudTab):
             combo.setCurrentIndex(idx if idx >= 0 else 0)
 
     def clear_form(self):
+        update_selected_row_font(self.table)
         self.ed_user.clear()
         self.ed_password.clear()
         self.ed_cert.clear()
@@ -2512,6 +2754,7 @@ class UsersTab(BaseCrudTab):
         row = self.table.currentRow()
         if row < 0:
             return
+        update_selected_row_font(self.table)
         self.ed_user.setText(item_text(self.table, row, 1))
         self.ed_password.clear()
         self.ed_cert.setText(item_text(self.table, row, 9))
@@ -2583,7 +2826,7 @@ class BehaviorRulesTab(BaseCrudTab):
                          ("Aktualisieren", self.update_selected),
                          ("Löschen"      , self.delete_selected),
                          ("Neu laden"    , self.load)]:
-            b = QPushButton(text)
+            b = PillowButtonBlue(self, text)
             b.clicked.connect(fn)
             form5.addWidget(b)
 
@@ -2623,6 +2866,7 @@ class BehaviorRulesTab(BaseCrudTab):
         self.cb_scope_value.setCurrentIndex(idx if idx >= 0 else 0)
 
     def clear_form(self):
+        update_selected_row_font(self.table)
         self.ed_name.clear()
         self.ed_pattern.clear()
         self.cb_category.setCurrentIndex(0)
@@ -2671,6 +2915,7 @@ class BehaviorRulesTab(BaseCrudTab):
         row = self.table.currentRow()
         if row < 0:
             return
+        update_selected_row_font(self.table)
         self.ed_name.setText(item_text(self.table, row, 1))
         self.ed_pattern.setText(item_text(self.table, row, 2))
         idx = self.cb_category.findText(item_text(self.table, row, 3))
@@ -2806,7 +3051,7 @@ class StatisticsTab(BaseCrudTab):
 
         form2 = QHBoxLayout()
         btn_refresh = QPushButton("Berechnen")
-        btn_import  = QPushButton("Access-Log importieren")
+        btn_import  = QPushButton("Import access.log")
         btn_csv     = QPushButton("CSV Export")
         btn_html    = QPushButton("HTML Report")
         btn_bar     = QPushButton("Balken-Diagramm")
@@ -2818,7 +3063,7 @@ class StatisticsTab(BaseCrudTab):
         btn_html   .clicked.connect(self.export_html_report)
         btn_bar    .clicked.connect(self.draw_bar_chart)
         btn_pie    .clicked.connect(self.draw_pie_chart)
-
+        
         form2.addWidget(btn_refresh)
         form2.addWidget(btn_import)
         form2.addWidget(btn_csv)
@@ -2838,16 +3083,15 @@ class StatisticsTab(BaseCrudTab):
         controls.addWidget(btn_html)
         controls.addWidget(btn_bar)
         controls.addWidget(btn_pie)
-        controls.addStretch(1)
+        #controls.addStretch(1)
         
         root.addLayout(controls)
         root.addLayout(form2)
 
         split = QSplitter()
         left = QWidget()
-        left_l = QVBoxLayout()
         
-        self.tbl_top_urls    = QTableWidget()
+        self.tbl_top_urls = QTableWidget()
         self.tbl_top_urls.setAlternatingRowColors(True)
         self.tbl_top_urls.setStyleSheet(f"""
         QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
@@ -2856,7 +3100,7 @@ class StatisticsTab(BaseCrudTab):
         alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
         color: {AppMode.TableWidgetColor};}}""")
         
-        self.tbl_top_users   = QTableWidget()
+        self.tbl_top_users = QTableWidget()
         self.tbl_top_users.setAlternatingRowColors(True)
         self.tbl_top_users.setStyleSheet(f"""
         QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
@@ -2874,12 +3118,52 @@ class StatisticsTab(BaseCrudTab):
         alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
         color: {AppMode.TableWidgetColor};}}""")
         
-        left_l.addWidget(QLabel("Top URLs"))
-        left_l.addWidget(self.tbl_top_urls)
-        left_l.addWidget(QLabel("Top Benutzer"))
-        left_l.addWidget(self.tbl_top_users)
-        left_l.addWidget(QLabel("Top Domains"))
-        left_l.addWidget(self.tbl_top_domains)
+        self.cas_top_urls    = QLabel("Top URLs")
+        self.cas_top_users   = QLabel("Top Benutzer")
+        self.cas_top_domains = QLabel("Top Domains")
+        
+        # ----- Bereich oben -----
+        oben_widget = QWidget()
+        oben_layout = QVBoxLayout(oben_widget)
+        
+        oben_splitter = QSplitter(Qt.Vertical)
+        oben_splitter.addWidget(self.cas_top_urls)
+        oben_splitter.addWidget(self.tbl_top_urls)
+        
+        oben_layout.addWidget(oben_splitter)
+        
+        # ----- Bereich mitte -----
+        middle_widget = QWidget()
+        middle_layout = QVBoxLayout(middle_widget)
+        
+        middle_splitter = QSplitter(Qt.Vertical)
+        middle_splitter.addWidget(self.cas_top_users)
+        middle_splitter.addWidget(self.tbl_top_users)
+        
+        middle_layout.addWidget(middle_splitter)
+        
+        # ----- Bereich unten -----
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        
+        right_splitter = QSplitter(Qt.Vertical)
+        right_splitter.addWidget(self.cas_top_domains)
+        right_splitter.addWidget(self.tbl_top_domains)
+        
+        right_layout.addWidget(right_splitter)
+        
+        # ----- äußerer Hauptsplitter -----
+        main_left_splitter = QSplitter(Qt.Vertical)
+        main_left_splitter.addWidget(oben_widget)
+        main_left_splitter.addWidget(middle_widget)
+        main_left_splitter.addWidget(right_widget)
+        
+        main_left_splitter.setSizes([250, 250, 250])
+        main_left_splitter.setChildrenCollapsible(False)
+        
+        # Alles ins Hauptlayout
+        left_l = QVBoxLayout()
+        left_l.addWidget(main_left_splitter)
         
         left.setLayout(left_l)
 
@@ -3386,19 +3670,46 @@ class ConfigTab(BaseCrudTab):
         conf_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         self.text.setPlainText("\n".join(lines))
         self.message("Konfiguration", f"{conf_path} wurde erzeugt.")
-
+    
     def test_config(self):
         try:
-            result = subprocess.run([self.ed_binary.text().strip() or "squid", "-k", "parse", "-f", self.ed_conf.text().strip()], capture_output=True, text=True)
-            self.message("Konfigurationstest", result.stdout + "\n" + result.stderr)
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
+                
+                p = subprocess.Popen(
+                    [self.ed_binary.text().strip() or "squid", "-k", "parse", "-f", self.ed_conf.text().strip()],
+                    capture_output = True,
+                    text           = True,
+                    creationflags  = subprocess.CREATE_NO_WINDOW,
+                    startupinfo    = startupinfo,
+                    stdout         = subprocess.PIPE,
+                    stderr         = subprocess.PIPE
+                )
+                out, err = p.communicate(timeout=60)
+                if p.returncode != 0:
+                    raise RuntimeError(f"Squid failed ({p.returncode}):\n{err}")
+                self.message("Konfigurationstest", result.stdout + "\n" + result.stderr)
+                return True
+            else:
+                content = "Squid is only available under Microsoft Windows"
+                dlg = ErrorMessage(
+                    title    = "Laufzeitfehler",
+                    message  = content,
+                    log_path = LOG,
+                    parent   = MAINWIN
+                )
+                dlg.exec_()
+                return False
         except Exception as e:
             self.warn("Fehler", str(e))
+            return False
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Squid Control Center v8")
-        self.resize(1024, 720)
+        self.resize(1032, 720)
 
         tabs = QTabWidget()
         tabs.addTab(DashboardTab()        , "Dashboard")
@@ -3431,37 +3742,6 @@ class MainWindow(QMainWindow):
 
         # Schrift setzen
         menubar.setFont(QFont("Arial", 11))
-
-        # Style setzen
-        menubar.setStyleSheet(f"""
-        QMenuBar {{
-            background-color: navy;
-            color: yellow;
-            font: 11pt "Arial";
-        }}
-        QMenuBar::item {{
-            background-color: transparent;
-            color: yellow;
-            padding: 6px 12px;
-        }}
-        QMenuBar::item:selected {{
-            background-color: #1e3a5f;
-        }}
-        QMenu {{
-            background-color: navy;
-            color: yellow;
-            border: 1px solid #3f5f8f;
-            font: 11pt "Arial";
-        }}
-        QMenu::item {{
-            padding: 6px 24px 6px 24px;
-            background-color: transparent;
-            color: yellow;
-        }}
-        QMenu::item:selected {{
-            background-color: #1e3a5f;
-        }}
-        """)
 
         # Menü "Datei"
         menu_datei = menubar.addMenu("Datei")
@@ -3598,23 +3878,59 @@ class MainWindow(QMainWindow):
             scroll_handle_hover     = "#b0b0b0"
         
         #self.setStyleSheet(_css("default_dark"))
-        self.setStyleSheet("""
-QToolBar {{spacing: 8px;background: {toolbar_bg};border: none;}}
+        self.setStyleSheet(f"""
+QMenuBar {{background-color: navy;color: yellow;font: 11pt "Arial";}}
+QMenuBar::item {{background-color: transparent;color: yellow;padding: 6px 12px;}}
+QMenuBar::item:selected {{background-color: #1e3a5f;}}
+QMenu {{
+background-color: navy;
+color: yellow;
+border: 1px solid #3f5f8f;
+font: 11pt "Arial";}}
+QMenu::item {{
+padding: 6px 24px 6px 24px;
+background-color: transparent;
+color: yellow;}}
+QMenu::item:selected {{
+background-color: #1e3a5f;}}
+QTableWidget {{
+font-size:10pt;
+background: #222222;
+gridline-color: #2f2f2f;
+selection-color: white;outline: 0;}}
+QTableWidget::item {{padding: 2px 4px;font-weight: 600;}}
+QTableWidget::item:selected {{
+font-family: "Arial";
+font-weight: 600;
+color: black;
+background: qlineargradient(
+x1: 0, y1: 0,
+x2: 0, y2: 1,
+stop: 0.00 #9e9e00,
+stop: 0.12 #9e9e00,
+stop: 0.88 #9e9e00,
+stop: 1.00 #9e9e00);
+border: 1px solid #8a6a18;}}
+QListBox {{font-size:10pt;}}
+QComboBox {{font-size:10pt;}}
+QCheckBox {{font-size:10pt;}}
+QSpinBox {{font-size:10pt;}}
+QToolBar {{font-size:10pt;spacing: 8px;background: {toolbar_bg};border: none;}}
 QToolBar::separator {{background: {border};width: 1px;margin: 6px 8px;}}
-QLineEdit {{padding: 6px 10px;border-radius: 10px;border: 1px solid {border};background: {tab_bg};color: {tab_fg};}}
-QLabel {{color: {tab_fg};}}
+QLineEdit {{font-size:10pt;padding: 6px 10px;border-radius: 10px;border: 1px solid {border};background: {tab_bg};color: {tab_fg};}}
+QLabel {{font-size:10pt;color: {tab_fg};}}
 QToolButton {{background: {toolbtn_bg};color: {toolbtn_fg};border: 1px solid {border};border-radius: 10px;padding: 6px 10px;}}
 QToolButton:hover {{background: {toolbtn_hover};}}
 QToolButton:pressed {{background: {toolbtn_pressed};}}
 QTabWidget::pane {{border: 1px solid {border};top: -1px;background: {tab_bg};}}
-QTabBar {{background: {tab_bar_bg};}}
+QTabBar {{font-size:10pt;background: {tab_bar_bg};}}
 QTabBar::tab {{background: {tab_bar_bg};color: {tab_fg};border: 1px solid {border};border-bottom: none;padding: 7px 14px;margin-right: 6px;border-top-left-radius: 12px;border-top-right-radius: 12px;min-width: 90px;}}
 QTabBar::tab:hover {{background: {tab_hover_bg};}}
 QTabBar::tab:selected {{background: {tab_sel_bg};color: {tab_fg_active};}}
 QTreeView {{border: none;background: {tree_bg};color: {tree_fg};}}
 QTreeView::item:selected {{background: {sel_bg};color: {sel_fg};}}
 QHeaderView::section {{background: {header_bg};color: {header_fg};padding: 6px;border: none;border-bottom: 1px solid {border};}}
-QPushButton {{background: {toolbtn_bg};color: {toolbtn_fg};border: 1px solid {border};border-radius: 10px;padding: 7px 12px;}}
+QPushButton {{font-size:10pt;background: {toolbtn_bg};color: {toolbtn_fg};border: 1px solid {border};border-radius: 10px;padding: 7px 12px;}}
 QPushButton:hover {{background: {toolbtn_hover};}}
 QPushButton:pressed {{background: {toolbtn_pressed};}}
 /* Scrollbars (TreeView etc.) */
@@ -3708,8 +4024,9 @@ def main():
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    win = MainWindow()
-    win.show()
+    global MAINWIN
+    MAINWIN = MainWindow()
+    MAINWIN.show()
     sys.exit(app.exec_())
 
 if __name__ == "__main__":

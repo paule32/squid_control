@@ -657,17 +657,33 @@ def decompile_chm_windows(chm_path: str, out_dir: str) -> bool:
         print("hh.exe not found !")
         return False
     try:
-        p = subprocess.Popen(
-            [hh, "-decompile", out_dir, chm_path],
-            #check  = True,
-            text   = True,
-            stdout = subprocess.PIPE,
-            stderr = subprocess.PIPE
-        )
-        out, err = p.communicate(timeout=60)
-        if p.returncode != 0:
-            raise RuntimeError(f"hh.exe failed ({p.returncode}):\n{err}")
-        return True
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
+        
+            p = subprocess.Popen(
+                [hh, "-decompile", out_dir, chm_path],
+                creationflags  = subprocess.CREATE_NO_WINDOW,
+                startupinfo    = startupinfo,
+                capture_output = True,
+                text           = True,
+                stdout         = subprocess.PIPE,
+                stderr         = subprocess.PIPE
+            )
+            out, err = p.communicate(timeout=60)
+            if p.returncode != 0:
+                raise RuntimeError(f"hh.exe failed ({p.returncode}):\n{err}")
+            return True
+        else:
+            content = "CHM Help is only available under Microsoft Windows"
+            dlg = ErrorMessage(
+                title    = "Laufzeitfehler",
+                message  = content,
+                log_path = LOG,
+                parent   = MAINWIN
+            )
+            dlg.exec_()
+            return False
     except Exception as e:
         print(e)
         return False
@@ -958,7 +974,6 @@ class HelpMainWindow(QMainWindow):
                 self.open_local(first)
 
     # -------- Contents / Index load --------
-
     def load_contents(self, hhc_path: str):
         self.contents_model.removeRows(0, self.contents_model.rowCount())
         toc_root = parse_hh_file(hhc_path)
@@ -1715,8 +1730,33 @@ class DashboardTab(BaseCrudTab):
 
     def _run_sc(self, action):
         try:
-            result = subprocess.run(["sc", action, self.service_name()], capture_output=True, text=True)
-            return result.stdout + "\n" + result.stderr
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
+            
+                p = subprocess.Popen(
+                    ["sc", action, self.service_name()],
+                    creationflags  = subprocess.CREATE_NO_WINDOW,
+                    startupinfo    = startupinfo,
+                    capture_output = True,
+                    text           = True,
+                    stdout         = subprocess.PIPE,
+                    stderr         = subprocess.PIPE
+                )
+                out, err = p.communicate(timeout=60)
+                if p.returncode != 0:
+                    raise RuntimeError(f"SC failed ({p.returncode}):\n{err}")
+                return p.stdout + "\n" + p.stderr
+            else:
+                content = "Squid is only available under Microsoft Windows"
+                dlg = ErrorMessage(
+                    title    = "Laufzeitfehler",
+                    message  = content,
+                    log_path = LOG,
+                    parent   = MAINWIN
+                )
+                dlg.exec_()
+                return False
         except Exception as e:
             return str(e)
 
@@ -1737,30 +1777,111 @@ class DashboardTab(BaseCrudTab):
 
     def reload_service(self):
         try:
-            result = subprocess.run([self.squid_binary(), "-k", "reconfigure", "-f", self.squid_conf_path()], capture_output=True, text=True)
-            self.message("Reload", result.stdout + "\n" + result.stderr)
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
+            
+                p = subprocess.Popen(
+                    [self.squid_binary(), "-k", "reconfigure", "-f", self.squid_conf_path()],
+                    capture_output = True,
+                    text           = True,
+                    creationflags  = subprocess.CREATE_NO_WINDOW,
+                    startupinfo    = startupinfo,
+                    stdout         = subprocess.PIPE,
+                    stderr         = subprocess.PIPE
+                )
+                out, err = p.communicate(timeout=60)
+                if p.returncode != 0:
+                    raise RuntimeError(f"Squid failed ({p.returncode}):\n{err}")
+                self.message("Reload", p.stdout + "\n" + p.stderr)
+                self.refresh()
+                return True
+            else:
+                content = "Squid is only available under Microsoft Windows"
+                dlg = ErrorMessage(
+                    title    = "Laufzeitfehler",
+                    message  = content,
+                    log_path = LOG,
+                    parent   = MAINWIN
+                )
+                dlg.exec_()
+                return False
         except Exception as e:
             self.warn("Fehler", str(e))
-        self.refresh()
+            return False
 
     def test_config(self):
         try:
-            result = subprocess.run([self.squid_binary(), "-k", "parse", "-f", self.squid_conf_path()], capture_output=True, text=True)
-            self.message("Konfigurationstest", result.stdout + "\n" + result.stderr)
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
+                
+                p = subprocess.Popen(
+                    [self.squid_binary(), "-k", "parse", "-f", self.squid_conf_path()],
+                    capture_output = True,
+                    text           = True,
+                    creationflags  = subprocess.CREATE_NO_WINDOW,
+                    startupinfo    = startupinfo,
+                    stdout         = subprocess.PIPE,
+                    stderr         = subprocess.PIPE
+                )
+                out, err = p.communicate(timeout=60)
+                if p.returncode != 0:
+                    raise RuntimeError(f"Squid failed ({p.returncode}):\n{err}")
+                self.message("Konfigurationstest", p.stdout + "\n" + p.stderr)
+                return True
+            else:
+                content = "Squid is only available under Microsoft Windows"
+                dlg = ErrorMessage(
+                    title    = "Laufzeitfehler",
+                    message  = content,
+                    log_path = LOG,
+                    parent   = MAINWIN
+                )
+                dlg.exec_()
+                return False
         except Exception as e:
             self.warn("Fehler", str(e))
+            return False
 
     def refresh(self):
         try:
-            result = subprocess.run(["sc", "query", self.service_name()], capture_output=True, text=True)
-            if "RUNNING" in result.stdout:
-                self.service_led.set_green()
-            elif "STOPPED" in result.stdout:
-                self.service_led.set_red()
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
+                
+                p = subprocess.Popen(
+                    ["sc", "query", self.service_name()],
+                    capture_output = True,
+                    text           = True,
+                    creationflags  = subprocess.CREATE_NO_WINDOW,
+                    startupinfo    = startupinfo,
+                    stdout         = subprocess.PIPE,
+                    stderr         = subprocess.PIPE
+                )
+                out, err = p.communicate(timeout=60)
+                if p.returncode != 0:
+                    raise RuntimeError(f"Squid failed ({p.returncode}):\n{err}")
+                
+                if "RUNNING" in p.stdout:
+                    self.service_led.set_green()
+                elif "STOPPED" in p.stdout:
+                    self.service_led.set_red()
+                else:
+                    self.service_led.set_yellow()
             else:
-                self.service_led.set_yellow()
+                content = "Squid is only available under Microsoft Windows"
+                dlg = ErrorMessage(
+                    title    = "Laufzeitfehler",
+                    message  = content,
+                    log_path = LOG,
+                    parent   = MAINWIN
+                )
+                dlg.exec_()
+                return False
         except Exception:
             self.service_led.set_red()
+            return False
 
         access_log_path = Path(DB.setting("access_log_path", str(DEFAULT_ACCESS_LOG)))
         recent = [parse_access_log_line(x) for x in read_tail_lines(access_log_path, 500)]
@@ -3386,13 +3507,40 @@ class ConfigTab(BaseCrudTab):
         conf_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         self.text.setPlainText("\n".join(lines))
         self.message("Konfiguration", f"{conf_path} wurde erzeugt.")
-
+    
     def test_config(self):
         try:
-            result = subprocess.run([self.ed_binary.text().strip() or "squid", "-k", "parse", "-f", self.ed_conf.text().strip()], capture_output=True, text=True)
-            self.message("Konfigurationstest", result.stdout + "\n" + result.stderr)
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
+                
+                p = subprocess.Popen(
+                    [self.ed_binary.text().strip() or "squid", "-k", "parse", "-f", self.ed_conf.text().strip()],
+                    capture_output = True,
+                    text           = True,
+                    creationflags  = subprocess.CREATE_NO_WINDOW,
+                    startupinfo    = startupinfo,
+                    stdout         = subprocess.PIPE,
+                    stderr         = subprocess.PIPE
+                )
+                out, err = p.communicate(timeout=60)
+                if p.returncode != 0:
+                    raise RuntimeError(f"Squid failed ({p.returncode}):\n{err}")
+                self.message("Konfigurationstest", result.stdout + "\n" + result.stderr)
+                return True
+            else:
+                content = "Squid is only available under Microsoft Windows"
+                dlg = ErrorMessage(
+                    title    = "Laufzeitfehler",
+                    message  = content,
+                    log_path = LOG,
+                    parent   = MAINWIN
+                )
+                dlg.exec_()
+                return False
         except Exception as e:
             self.warn("Fehler", str(e))
+            return False
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -3708,8 +3856,9 @@ def main():
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    win = MainWindow()
-    win.show()
+    global MAINWIN
+    MAINWIN = MainWindow()
+    MAINWIN.show()
     sys.exit(app.exec_())
 
 if __name__ == "__main__":

@@ -1,13 +1,32 @@
 
 --- PYTHON UNCAUGHT EXCEPTION ---
 Traceback (most recent call last):
-  File "T:\VM\VPN\squid\squid_control_center_v8.py", line 2335, in add_row
-    (self.ed_name.text().strip(), self.ed_weekdays.text().strip(), self.ed_start.text().strip(),
-                                  ^^^^^^^^^^^^^^^^
-AttributeError: 'TimeWindowsTab' object has no attribute 'ed_weekdays'. Did you mean: 'cb_weekdays'?
-Windows fatal exception: access violation
-
-Current thread 0x000042c4 (most recent call first):
-  <no Python frame>
+  File "T:\VM\VPN\squid\squid_control_center_v8.py", line 4027, in <module>
+    main()
+    ~~~~^^
+  File "T:\VM\VPN\squid\squid_control_center_v8.py", line 4022, in main
+    MAINWIN = MainWindow()
+  File "T:\VM\VPN\squid\squid_control_center_v8.py", line 3711, in __init__
+    tabs.addTab(ReplacementPagesTab() , "Ersatz-Pages")
+                ~~~~~~~~~~~~~~~~~~~^^
+  File "T:\VM\VPN\squid\squid_control_center_v8.py", line 2042, in __init__
+    b = PillowButtonBlue(text)
+  File "T:\VM\VPN\squid\squid_control_center_v8.py", line 369, in __init__
+            self.setStyleSheet(f"""
+            ~~~~~~~~~~~~~~~~~~^^^^^
+    QPushButton {{
+    ^^^^^^^^^^^^^^
+    ...<60 lines>...
+    }}
+    ^^
+    """)
+    ^^^^
+RuntimeError: super-class __init__() of type PillowButtonBlue was never called
 base=T:\VM\VPN\squid
-QtWebEngineProcess=[]
+QtWebEngineProcess=[WindowsPath('T:/VM/VPN/squid/temp/_internal/PyQt5/Qt5/bin/QtWebEngineProcess.exe'), WindowsPath('T:/VM/VPN/squid/dist/venv/Lib/site-packages/PyQt5/Qt5/bin/QtWebEngineProcess.exe')]
+base=T:\VM\VPN\squid
+QtWebEngineProcess=[WindowsPath('T:/VM/VPN/squid/temp/_internal/PyQt5/Qt5/bin/QtWebEngineProcess.exe'), WindowsPath('T:/VM/VPN/squid/dist/venv/Lib/site-packages/PyQt5/Qt5/bin/QtWebEngineProcess.exe')]
+base=T:\VM\VPN\squid
+QtWebEngineProcess=[WindowsPath('T:/VM/VPN/squid/temp/_internal/PyQt5/Qt5/bin/QtWebEngineProcess.exe'), WindowsPath('T:/VM/VPN/squid/dist/venv/Lib/site-packages/PyQt5/Qt5/bin/QtWebEngineProcess.exe')]
+base=T:\VM\VPN\squid
+QtWebEngineProcess=[WindowsPath('T:/VM/VPN/squid/temp/_internal/PyQt5/Qt5/bin/QtWebEngineProcess.exe'), WindowsPath('T:/VM/VPN/squid/dist/venv/Lib/site-packages/PyQt5/Qt5/bin/QtWebEngineProcess.exe')]

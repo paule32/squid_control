@@ -1,15 +1,14 @@
-name: Build Squid Manager
+name: Build Squid Manager Artifact
 
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
   workflow_dispatch:
+    branches: [ main, master ]
 
 env:
   PYTHON_VERSION: "3.12"
   APP_NAME: "SquidManager"
   SCRIPT_NAME: "squid_manager.py"
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   build-windows:
@@ -27,12 +26,16 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
 
       - name: Abhängigkeiten installieren
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller PyQt5 polib matplotlib
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-build.txt
 
       - name: Anwendung bauen
         shell: pwsh
@@ -45,7 +48,16 @@ jobs:
             --name "${{ env.APP_NAME }}" `
             --collect-all matplotlib `
             --hidden-import PyQt5.sip `
+            --hidden-import PyQt5.QtWebEngineWidgets `
             "${{ env.SCRIPT_NAME }}"
+
+      - name: Create ZIP package
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path "dist/${{ env.APP_NAME }}/*" `
+            -DestinationPath "dist/${{ env.APP_NAME }}-windows.zip" `
+            -Force
 
       - name: Build-Artefakt hochladen
         uses: actions/upload-artifact@v4

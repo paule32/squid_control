@@ -1,0 +1,120 @@
+# ----------------------------------------------------------------------------
+# file: build-manuel.yml
+# (c) 2026 by Jens Kallup - paule32
+# all rights reserved.
+#
+# build release from version.py:
+# APP_NAME = ""
+# VERSION  = "0.0.1"
+# ----------------------------------------------------------------------------
+name: Build Release from version.py
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.12"
+  SCRIPT_NAME: "squid_manager.py"
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-build.txt
+
+      - name: Read app name and version from version.py
+        id: ver
+        shell: pwsh
+        run: |
+          $code = @'
+          import runpy
+          data = runpy.run_path("version.py")
+          print(f"APP_NAME={data['APP_NAME']}")
+          print(f"VERSION={data['VERSION']}")
+          print(f"TAG=v{data['VERSION']}")
+          '@
+
+          $output = python -c $code
+          $output | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Show version info
+        shell: pwsh
+        run: |
+          echo "APP_NAME=$env:APP_NAME"
+          echo "VERSION=$env:VERSION"
+          echo "TAG=$env:TAG"
+
+      - name: Build with PyInstaller
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --clean `
+            --windowed `
+            --onedir `
+            --name "$env:APP_NAME" `
+            --collect-all matplotlib `
+            --hidden-import PyQt5.sip `
+            --hidden-import PyQt5.QtWebEngineWidgets `
+            "$env:SCRIPT_NAME"
+
+      - name: Create ZIP package
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path "dist/$env:APP_NAME/*" `
+            -DestinationPath "dist/$env:APP_NAME-$env:TAG-windows.zip" `
+            -Force
+
+      - name: Create tag if missing
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch --tags
+
+          $tagExists = git tag -l "$env:TAG"
+          if (-not $tagExists) {
+            git tag "$env:TAG"
+            git push origin "$env:TAG"
+          } else {
+            echo "Tag $env:TAG existiert bereits."
+          }
+
+      - name: Create GitHub Release
+        shell: pwsh
+        run: |
+          gh release view "$env:TAG" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create "$env:TAG" `
+              "dist/$env:APP_NAME-$env:TAG-windows.zip" `
+              --title "$env:APP_NAME $env:TAG" `
+              --generate-notes
+          } else {
+            gh release upload "$env:TAG" `
+              "dist/$env:APP_NAME-$env:TAG-windows.zip" `
+              --clobber
+          }

@@ -8,3 +8,4 @@ squid_control_center_v7.py
 *.bak
 dist/webengine_crash.log
 dist/squid_manager.pyc
+/temp

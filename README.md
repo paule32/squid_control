@@ -1,6 +1,6 @@
 # squid_control
 Tool for manage Squid-Proxy
-
+ 
 To start the Application you need Python 3.13.12<br>
 For install this version you can use the Microsoft Windows 11 PowerShell Script named setup.ps1.
 If you have problems by starting this script, you can try to exec it by call the setup.bat batch

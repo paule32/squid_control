@@ -30,3 +30,7 @@ base=T:\VM\VPN\squid
 QtWebEngineProcess=[WindowsPath('T:/VM/VPN/squid/temp/_internal/PyQt5/Qt5/bin/QtWebEngineProcess.exe'), WindowsPath('T:/VM/VPN/squid/dist/venv/Lib/site-packages/PyQt5/Qt5/bin/QtWebEngineProcess.exe')]
 base=T:\VM\VPN\squid
 QtWebEngineProcess=[WindowsPath('T:/VM/VPN/squid/temp/_internal/PyQt5/Qt5/bin/QtWebEngineProcess.exe'), WindowsPath('T:/VM/VPN/squid/dist/venv/Lib/site-packages/PyQt5/Qt5/bin/QtWebEngineProcess.exe')]
+Windows fatal exception: access violation
+
+Current thread 0x00005dd0 (most recent call first):
+  <no Python frame>

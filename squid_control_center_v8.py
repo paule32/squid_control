@@ -28,6 +28,7 @@ import tempfile
 import traceback    # debug
 import time
 import ipaddress
+import ctypes
 
 # ---------------------------------------------------------------------------
 # i18n / gettext (mo inside zip: <lang>/LC_MESSAGES/dbase.mo)
@@ -48,7 +49,7 @@ from html.parser     import HTMLParser
 
 from PyQt5.QtCore    import (
     QObject, Qt, QTimer, qInstallMessageHandler, QEvent, QSortFilterProxyModel,
-    QUrl, QPoint,
+    QUrl, QPoint, QSettings,
 )
 from PyQt5.QtGui     import (
     QStandardItemModel, QStandardItem, QPalette, QColor, QFont,
@@ -78,6 +79,21 @@ DEFAULT_SQUID_CONF = APP_DIR / "squid.conf"
 DEFAULT_ACCESS_LOG = APP_DIR / "access.log"
 DEFAULT_CACHE_LOG  = APP_DIR / "cache.log"
 
+INI_FILE           = "squid.ini"
+TAB_LIST_INI       = []
+
+# ---------------------------------------------------------------------------
+# global time window constants ...
+# ---------------------------------------------------------------------------
+WEEKDAY_STRING = ""
+HOUR_START     = "00:00"
+HOUR_END       = "00:00"
+
+MAINWIN        = None
+
+# ---------------------------------------------------------------------------
+# filter categories
+# ---------------------------------------------------------------------------
 URL_CATEGORIES = [
     "FSK",
     "nicht jugendfrei",
@@ -191,6 +207,21 @@ class AppMode_State:
 # ---------------------------------------------------------------------------
 AppMode = AppMode_State()
 
+@dataclass
+class AccessEntry:
+    timestamp: datetime
+    elapsed_ms: int
+    client_ip: str
+    cache_result: str
+    bytes_sent: int
+    method: str
+    url: str
+    username: str
+    hierarchy: str
+    content_type: str
+    domain: str
+    raw_line: str
+    
 def ensure_qt_app():
     app = QApplication.instance()
     if app is None:
@@ -408,6 +439,142 @@ else:
 def  _tr(msgid: str) -> str: return _I18N._tr(msgid)
 def _css(msgid: str) -> str: return _QCSS._tr(msgid)
 
+# ---------------------------------------------------------------------------
+# Aktiviert dunkle native Titelleiste unter Windows 10/11.
+# Die Standard-Fensterbuttons bleiben erhalten.
+# ---------------------------------------------------------------------------
+def enable_dark_title_bar(hwnd: int):
+    if os.name == "nt":
+        DWMWA_USE_IMMERSIVE_DARK_MODE = 20  # oft 20, auf manchen Builds 19
+        value  = ctypes.c_int(1)
+        dwmapi = ctypes.windll.dwmapi
+        
+        # Erst mit Attribut 20 versuchen
+        result = dwmapi.DwmSetWindowAttribute(
+        ctypes.c_void_p(hwnd),
+        ctypes.c_uint(DWMWA_USE_IMMERSIVE_DARK_MODE),
+        ctypes.byref(value),
+        ctypes.sizeof(value))
+        
+        # Fallback für ältere Windows-10-Builds
+        if result != 0:
+            DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19
+            dwmapi.DwmSetWindowAttribute(
+            ctypes.c_void_p(hwnd),
+            ctypes.c_uint(DWMWA_USE_IMMERSIVE_DARK_MODE_OLD),
+            ctypes.byref(value),
+            ctypes.sizeof(value))
+        return True
+    else:
+        print("not implemented - only for Windows!")
+        return False
+
+# ---------------------------------------------------------------------------
+# Liest den Text aus combo.lineEdit(),
+# erwartet z. B.: "Montag, Dienstag, Mittwoch"
+# und liefert   : "mon,tue,wed"
+# Falls leer    : ""
+# ---------------------------------------------------------------------------
+def convert_weekdays_from_combobox(combo) -> str:
+    text = combo.lineEdit().text().strip()
+    if not text:
+        return ""
+    
+    de_to_en = {
+        "montag"    : "mon",
+        "dienstag"  : "tue",
+        "mittwoch"  : "wed",
+        "donnerstag": "thu",
+        "freitag"   : "fri",
+        "samstag"   : "sat",
+        "sonntag"   : "sun",
+    }
+    
+    # String -> Liste
+    parts = [item.strip().lower() for item in text.split(",") if item.strip()]
+    
+    # Deutsche Namen -> englische Kürzel
+    result_list = [de_to_en[item] for item in parts if item in de_to_en]
+    
+    # Liste -> String
+    return ",".join(result_list)
+
+# ---------------------------------------------------------------------------
+# Erwartet z. B.: "mon,tue,wed"
+# und liefert   : "Montag, Dienstag, Mittwoch"
+# Falls leer    : ""
+# ---------------------------------------------------------------------------
+def convert_weekdays_to_german(text: str) -> str:
+    text = text.strip()
+    if not text:
+        return ""
+    
+    en_to_de = {
+        "mon": "Montag",
+        "tue": "Dienstag",
+        "wed": "Mittwoch",
+        "thu": "Donnerstag",
+        "fri": "Freitag",
+        "sat": "Samstag",
+        "sun": "Sonntag",
+    }
+    
+    parts = [item.strip().lower() for item in text.split(",") if item.strip()]
+    result_list = [en_to_de[item] for item in parts if item in en_to_de]
+    
+    return ", ".join(result_list)
+
+def create_settings() -> QSettings:
+    return QSettings(INI_FILE, QSettings.IniFormat)
+
+def config_exists() -> bool:
+    return Path(INI_FILE).exists()
+
+def save_table_column_widths(table, settings: QSettings, table_name: str):
+    return
+    try:
+        settings.beginGroup(f"tables/{table_name}")
+        settings.setValue("column_count", table.columnCount())
+        
+        for obj in self.tab_list:
+            for tabl in tab.all_tables:
+                it = iter(tabl)
+                table_name = next(it, None)
+                table      = next(it, None)
+                restore_table_column_widths(table, self.settings, table_name)
+                
+        if table.columnCount() > 0:
+            for col in range(0, table.columnCount()+1):
+                settings.setValue(f"col_{col}", table.columnWidth(col))
+            
+        settings.endGroup()
+    except Exception as e:
+        pass
+
+def restore_table_column_widths(table, settings: QSettings, table_name: str):
+    settings.beginGroup(f"tables/{table_name}")
+    saved_count = settings.value("column_count", None)
+    
+    if saved_count is not None:
+        saved_count = int(saved_count.strip())
+        for col in range(0, saved_count):
+            value = settings.value(f"tables/{table_name}\\col_{col}", None)
+            if value is not None:
+                value = int(value.strip())
+                #print("cnt: ", saved_count, ", ", value)
+                table.setColumnWidth(col, value)
+            
+    settings.endGroup()
+
+def restore_all_table_widths(self):
+    for table_name, table in self.all_tables:
+        restore_table_column_widths(table, MAINWIN.settings, table_name)
+
+def save_all_table_widths(self):
+    for table_name, table in self.all_tables:
+        save_table_column_widths(table, self.settings, table_name)
+    self.settings.sync()
+
 def update_selected_row_font(table):
     # zuerst alle Items normal setzen
     normal_font = QFont("Arial", 10)
@@ -429,6 +596,333 @@ def update_selected_row_font(table):
             item = table.item(row, col)
             if item is not None:
                 item.setFont(bold_font)
+
+class HoverFocusLineEdit(QLineEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+        self._hovered = False
+        self._focused = False
+        
+        self._apply_normal_style()
+    
+    def _apply_normal_style(self):
+        font = self.font()
+        font.setBold(False)
+        self.setFont(font)
+        
+        self.setStyleSheet(r"""
+            QLineEdit {
+                background-color: #000000;
+                color: #ffffff;
+                border: 1px solid #404040;
+                padding: 4px;
+            }
+        """)
+    
+    def _apply_active_style(self):
+        font = self.font()
+        font.setBold(True)
+        self.setFont(font)
+        
+        self.setStyleSheet(r"""
+            QLineEdit {
+                background-color: #2a2a2a;
+                color: #ffffff;
+                border: 1px solid #808080;
+                padding: 4px;
+            }
+        """)
+    
+    def _update_style(self):
+        if self._hovered or self._focused:
+            self._apply_active_style()
+        else:
+            self._apply_normal_style()
+    
+    def enterEvent(self, event):
+        self._hovered = True
+        self._update_style()
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._update_style()
+        super().leaveEvent(event)
+    
+    def focusInEvent(self, event):
+        self._focused = True
+        self._update_style()
+        super().focusInEvent(event)
+    
+    def focusOutEvent(self, event):
+        self._focused = False
+        self._update_style()
+        super().focusOutEvent(event)
+
+class IndicatorVerticalHeader(QHeaderView):
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+        self._indicator_row = -1
+
+        codepoint = 0x25B6
+        self._indicator_text  = chr(codepoint)  # Alternativen: "➜", "►", "➤", "▸"
+        self._indicator_color = QColor("yellow")
+        
+        self._bg_color   = QColor(0, 0, 0)
+        self._text_color = QColor(180, 180, 180)
+
+        self._indicator_font = QFont("Segoe UI Symbol", 12)
+        self._normal_font    = QFont("Segoe UI", 9)
+
+        self.setDefaultAlignment(Qt.AlignCenter)
+        self.setSectionsClickable(False)
+        self.setHighlightSections(False)
+
+    def setIndicatorRow(self, row: int) -> None:
+        if row == self._indicator_row:
+            return
+
+        old_row = self._indicator_row
+        self._indicator_row = row
+
+        if old_row >= 0:
+            self.updateSection(old_row)
+        if row >= 0:
+            self.updateSection(row)
+
+    def paintSection(self, painter, rect, logicalIndex):
+        if not rect.isValid():
+            return
+        
+        painter.save()
+        
+        # Hintergrund schwarz
+        painter.fillRect(rect, self._bg_color)
+        
+        # dünner Rand
+        painter.setPen(QColor(60, 60, 60))
+        painter.drawRect(rect.adjusted(0, 0, -1, -1))
+        
+        if logicalIndex == self._indicator_row:
+            painter.setPen(self._indicator_color)
+            painter.setFont(self._indicator_font)
+            painter.drawText(rect, Qt.AlignCenter, self._indicator_text)
+        else:
+            painter.setPen(self._text_color)
+            painter.setFont(self._normal_font)
+            # Leer lassen oder z. B. kleine Punkte:
+            # painter.drawText(rect, Qt.AlignCenter, "·")
+            pass
+        
+        painter.restore()
+
+class DarkCornerTableWidget(QTableWidget):
+    def __init__(self, parent=None, rows=0, cols=0):
+        super().__init__(rows, cols, parent)
+        
+        self._corner_bg = "#202020"  # helleres Schwarz für linke obere Ecke
+        self.parent = parent
+        
+        # eigener vertikaler Header
+        self._vheader = IndicatorVerticalHeader(Qt.Vertical, self)
+        self.setVerticalHeader(self._vheader)
+        
+        #self._apply_styles()
+        self.setAlternatingRowColors(True)
+        self.setStyleSheet(f"""
+        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
+        QTableWidget {{
+        background-color: {AppMode.TableWidget_BackgroundColor};
+        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
+        color: {AppMode.TableWidgetColor};}}""")
+        
+        # Marker bei Zeilenwechsel anpassen
+        self.currentCellChanged.connect(self._on_current_cell_changed)
+        self.itemSelectionChanged.connect(self._sync_indicator_from_selection)
+    
+    def _apply_styles(self):
+        self.setStyleSheet(f"""
+            QTableWidget {{
+                background: #111111;
+                color: #dddddd;
+                gridline-color: #333333;
+                selection-background-color: #2a2a2a;
+                selection-color: #ffffff;
+            }}
+
+            QHeaderView::section:horizontal {{
+                background: #202020;
+                color: #dddddd;
+                border: 1px solid #3a3a3a;
+                padding: 4px;
+            }}
+
+            QTableCornerButton::section {{
+                background: {self._corner_bg};
+                border: 1px solid #3a3a3a;
+            }}
+        """)
+
+    def _on_current_cell_changed(self, currentRow, currentColumn, previousRow, previousColumn):
+        self._vheader.setIndicatorRow(currentRow)
+
+    def _sync_indicator_from_selection(self):
+        row = self.currentRow()
+        self._vheader.setIndicatorRow(row)
+
+# ---------------------------------------------------------------------------
+# Erwartetes Schema pro Zeile:
+# 1712345678.123 200 192.168.0.10 TCP_MISS/200 1024 GET http://facebook.com admin DIRECT/93.184.216.34 text/html
+# ---------------------------------------------------------------------------
+class SquidAccessLogAnalyzer:
+    def __init__(self, log_path: str | Path):
+        self.log_path = Path(log_path)
+        self.entries: list[AccessEntry] = []
+
+    @staticmethod
+    def _parse_timestamp(value: str) -> datetime:
+        return datetime.fromtimestamp(float(value))
+
+    @staticmethod
+    def _extract_domain(url: str) -> str:
+        parsed = urlparse(url)
+        if parsed.netloc:
+            return parsed.netloc.lower()
+        return url.split("/")[0].lower()
+
+    @classmethod
+    def _parse_line(cls, line: str) -> Optional[AccessEntry]:
+        parts = line.strip().split()
+
+        if len(parts) < 10:
+            return None
+
+        try:
+            timestamp = cls._parse_timestamp(parts[0])
+            elapsed_ms = int(parts[1])
+            client_ip = parts[2]
+            cache_result = parts[3]
+            bytes_sent = int(parts[4])
+            method = parts[5]
+            url = parts[6]
+            username = parts[7]
+            hierarchy = parts[8]
+            content_type = parts[9]
+            domain = cls._extract_domain(url)
+
+            return AccessEntry(
+                timestamp=timestamp,
+                elapsed_ms=elapsed_ms,
+                client_ip=client_ip,
+                cache_result=cache_result,
+                bytes_sent=bytes_sent,
+                method=method,
+                url=url,
+                username=username,
+                hierarchy=hierarchy,
+                content_type=content_type,
+                domain=domain,
+                raw_line=line.rstrip("\n"),
+            )
+        except Exception:
+            return None
+
+    def load(self) -> list[AccessEntry]:
+        self.entries.clear()
+
+        if not self.log_path.exists():
+            raise FileNotFoundError(f"Datei nicht gefunden: {self.log_path}")
+
+        with self.log_path.open("r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                entry = self._parse_line(line)
+                if entry is not None:
+                    self.entries.append(entry)
+
+        return self.entries
+
+    def top_domains(self, limit: int = 10) -> list[tuple[str, int]]:
+        counter = Counter(entry.domain for entry in self.entries)
+        return counter.most_common(limit)
+
+    def top_users(self, limit: int = 10) -> list[tuple[str, int]]:
+        counter = Counter(entry.username for entry in self.entries)
+        return counter.most_common(limit)
+
+    def top_urls(self, limit: int = 10) -> list[tuple[str, int]]:
+        counter = Counter(entry.url for entry in self.entries)
+        return counter.most_common(limit)
+
+    def find_page_accesses(self, page_filter: str, exact: bool = False) -> list[AccessEntry]:
+        if exact:
+            return [entry for entry in self.entries if entry.url == page_filter]
+        return [entry for entry in self.entries if page_filter.lower() in entry.url.lower()]
+
+    def print_page_accesses(self, page_filter: str, exact: bool = False) -> None:
+        matches = self.find_page_accesses(page_filter, exact=exact)
+
+        if not matches:
+            print(f"Keine Zugriffe gefunden für: {page_filter}")
+            return
+
+        print(f"Zugriffe auf: {page_filter}")
+        print("-" * 120)
+        for entry in matches:
+            print(
+                f"{entry.timestamp:%Y-%m-%d %H:%M:%S} | "
+                f"User={entry.username:<10} | "
+                f"IP={entry.client_ip:<15} | "
+                f"{entry.method:<6} | "
+                f"Bytes={entry.bytes_sent:<6} | "
+                f"{entry.url}"
+            )
+
+    def plot_bar_chart(self, mode: str = "domains", limit: int = 10) -> None:
+        if mode == "domains":
+            data = self.top_domains(limit)
+            title = "Top Domains"
+        elif mode == "users":
+            data = self.top_users(limit)
+            title = "Top Benutzer"
+        elif mode == "urls":
+            data = self.top_urls(limit)
+            title = "Top URLs"
+        else:
+            raise ValueError("mode muss 'domains', 'users' oder 'urls' sein")
+
+        labels = [item[0] for item in data]
+        values = [item[1] for item in data]
+
+        plt.figure(figsize=(12, 6))
+        plt.barh(labels, values)
+        plt.gca().invert_yaxis()
+        plt.xlabel("Anzahl Zugriffe")
+        plt.title(title)
+        plt.tight_layout()
+        plt.show()
+
+    def plot_pie_chart(self, mode: str = "domains", limit: int = 10) -> None:
+        if mode == "domains":
+            data = self.top_domains(limit)
+            title = "Top Domains"
+        elif mode == "users":
+            data = self.top_users(limit)
+            title = "Top Benutzer"
+        elif mode == "urls":
+            data = self.top_urls(limit)
+            title = "Top URLs"
+        else:
+            raise ValueError("mode muss 'domains', 'users' oder 'urls' sein")
+
+        labels = [item[0] for item in data]
+        values = [item[1] for item in data]
+
+        plt.figure(figsize=(8, 8))
+        plt.pie(values, labels=labels, autopct="%1.1f%%")
+        plt.title(title)
+        plt.tight_layout()
+        plt.show()
 
 class PillowButtonBlue(QPushButton):
     def __init__(self, parent=None, text=""):
@@ -752,7 +1246,6 @@ def decompile_chm_windows(chm_path: str, out_dir: str) -> bool:
     try:
         if os.name == "nt":
             startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
         
             p = subprocess.Popen(
                 [hh, "-decompile", out_dir, chm_path],
@@ -842,7 +1335,7 @@ class HelpMainWindow(QMainWindow):
         self.contents_proxy = RecursiveFilterProxy()
         self.contents_proxy.setSourceModel(self.contents_model)
 
-        self.contents_filter = QLineEdit()
+        self.contents_filter = HoverFocusLineEdit()
         self.contents_filter.setPlaceholderText("Filter (Contents)…")
         self.contents_filter.textChanged.connect(self.contents_proxy.setFilterText)
 
@@ -865,7 +1358,7 @@ class HelpMainWindow(QMainWindow):
         self.index_proxy = RecursiveFilterProxy()
         self.index_proxy.setSourceModel(self.index_model)
 
-        self.index_filter = QLineEdit()
+        self.index_filter = HoverFocusLineEdit()
         self.index_filter.setPlaceholderText("Filter (Index)…")
         self.index_filter.textChanged.connect(self.index_proxy.setFilterText)
 
@@ -889,7 +1382,7 @@ class HelpMainWindow(QMainWindow):
         vs.setSpacing(8)
 
         row = QHBoxLayout()
-        self.search_edit = QLineEdit()
+        self.search_edit = HoverFocusLineEdit()
         self.search_edit.setPlaceholderText("Search (Sphinx)…")
         self.search_edit.returnPressed.connect(self.open_sphinx_search)
         btn = QPushButton("Search")
@@ -1535,29 +2028,91 @@ class F1Filter(QObject):
             return True
         return super().eventFilter(obj, event)
 
+# ---------------------------------------------------------------------------
+# database connection class ...
+# ---------------------------------------------------------------------------
 class DB:
+    def __init__(self):
+        conn = None
+    
+    def open(filename):
+        DB.conn = sqlite3.connect(filename)
+        return DB.conn
+        
+    def close():
+        if DB.conn is not None:
+            DB.conn.close()
+            DB.conn = None
+    
+    def is_open():
+        if DB.conn is None:
+            return False
+        try:
+            DB.conn.execute("SELECT 1")
+            return True
+        except Exception:
+            return False
+    
     @staticmethod
     def conn():
-        return sqlite3.connect(DB_PATH)
+        if not DB.is_open():
+            return DB.open(DB_PATH)
+        else:
+            DB.close()
+            return DB.open(DB_PATH)
 
     @staticmethod
     def fetchall(sql: str, params=()):
-        conn = DB.conn()
-        cur = conn.cursor()
+        if not DB.is_open():
+            DB.open(DB_PATH)
+        #DB.conn = DB.conn()
+        cur = DB.conn.cursor()
         cur.execute(sql, params)
         rows = cur.fetchall()
-        conn.close()
+        DB.close()
         return rows
 
     @staticmethod
     def execute(sql: str, params=()):
-        conn = DB.conn()
-        cur = conn.cursor()
-        cur.execute(sql, params)
-        conn.commit()
-        lastrowid = cur.lastrowid
-        conn.close()
-        return lastrowid
+        try:
+            try:
+                if not DB.is_open():
+                    DB.open(DB_PATH)
+                cur = DB.conn.cursor()
+                cur.execute(sql, params)
+                DB.conn.commit()
+                lastrowid = cur.lastrowid
+                DB.conn.close()
+                return lastrowid
+            # ------------------------------
+            # Datensatz bereits vorhanden ?
+            # ------------------------------
+            except sqlite3.IntegrityError as e:
+                content = "Datensatz-Fehler"
+                #
+                conn = DB.conn()
+                cur  = conn.cursor()
+                cur  . rollback()
+                cur  . close()
+                conn . close()
+                #
+                raise Exception(content)
+            except sqlite3.OperationalError as e:
+                conn = DB.conn()
+                conn.close()
+                content = "Datenbank ist gesperrt."
+                raise Exception(content)
+        # ----------------------------------
+        # re-raised exception to save space
+        # ----------------------------------
+        except Exception as e:
+            dlg = ErrorMessage(
+                title    = "Laufzeitfehler",
+                message  = content,
+                log_path = LOG,
+                parent   = MAINWIN)
+            dlg.exec_()
+            return False
 
     @staticmethod
     def setting(key: str, default: str = "") -> str:
@@ -1566,118 +2121,116 @@ class DB:
 
     @staticmethod
     def set_setting(key: str, value: str):
-        conn = DB.conn()
-        cur = conn.cursor()
+        cur = DB.conn.cursor()
         cur.execute(
             "INSERT INTO settings(key, value) VALUES(?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value),
         )
-        conn.commit()
-        conn.close()
-
+        DB.conn.commit()
+        DB.close()
 
 def init_db():
     conn = DB.conn()
     c = conn.cursor()
 
     c.execute("""
-CREATE TABLE IF NOT EXISTS settings (
-key TEXT PRIMARY KEY,
-value TEXT
-)""")
+    CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+    )""")
 
     c.execute("""
-CREATE TABLE IF NOT EXISTS groups (
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-name TEXT UNIQUE NOT NULL,
-is_enabled INTEGER NOT NULL DEFAULT 1,
-comment TEXT DEFAULT ''
-)""")
+    CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    comment TEXT DEFAULT ''
+    )""")
 
     c.execute("""
-CREATE TABLE IF NOT EXISTS networks (
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-name TEXT UNIQUE NOT NULL,
-cidr TEXT NOT NULL,
-is_enabled INTEGER NOT NULL DEFAULT 1,
-comment TEXT DEFAULT ''
-)""")
+    CREATE TABLE IF NOT EXISTS networks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    cidr TEXT NOT NULL,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    comment TEXT DEFAULT ''
+    )""")
 
     c.execute("""
-CREATE TABLE IF NOT EXISTS time_windows (
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-name TEXT UNIQUE NOT NULL,
-weekdays TEXT DEFAULT '',
-start_time TEXT DEFAULT '',
-end_time TEXT DEFAULT '',
-is_enabled INTEGER NOT NULL DEFAULT 1,
-comment TEXT DEFAULT ''
-)""")
+    CREATE TABLE IF NOT EXISTS time_windows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    weekdays TEXT DEFAULT '',
+    start_time TEXT DEFAULT '',
+    end_time TEXT DEFAULT '',
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    comment TEXT DEFAULT ''
+    )""")
 
     c.execute("""
-CREATE TABLE IF NOT EXISTS users (
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-username TEXT UNIQUE NOT NULL,
-password_hash TEXT DEFAULT '',
-cert_fingerprint TEXT DEFAULT '',
-is_enabled INTEGER NOT NULL DEFAULT 1,
-is_blocked INTEGER NOT NULL DEFAULT 0,
-group_id INTEGER,
-network_id INTEGER,
-time_window_id INTEGER,
-created_at TEXT DEFAULT CURRENT_TIMESTAMP
-)""")
+    CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT DEFAULT '',
+    cert_fingerprint TEXT DEFAULT '',
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    is_blocked INTEGER NOT NULL DEFAULT 0,
+    group_id INTEGER,
+    network_id INTEGER,
+    time_window_id INTEGER,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
 
     c.execute("""
-CREATE TABLE IF NOT EXISTS replacement_pages (
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-name TEXT UNIQUE NOT NULL,
-category TEXT DEFAULT '',
-file_path TEXT NOT NULL,
-is_enabled INTEGER NOT NULL DEFAULT 1,
-comment TEXT DEFAULT ''
-)""")
+    CREATE TABLE IF NOT EXISTS replacement_pages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    category TEXT DEFAULT '',
+    file_path TEXT NOT NULL,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    comment TEXT DEFAULT ''
+    )""")
 
     c.execute("""
-CREATE TABLE IF NOT EXISTS blocked_urls (
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-pattern TEXT NOT NULL,
-category TEXT DEFAULT 'sonstiges',
-is_regex INTEGER NOT NULL DEFAULT 0,
-is_enabled INTEGER NOT NULL DEFAULT 1,
-replacement_page_id INTEGER,
-comment TEXT DEFAULT '',
-created_at TEXT DEFAULT CURRENT_TIMESTAMP
-)""")
+    CREATE TABLE IF NOT EXISTS blocked_urls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern TEXT NOT NULL,
+    category TEXT DEFAULT 'sonstiges',
+    is_regex INTEGER NOT NULL DEFAULT 0,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    replacement_page_id INTEGER,
+    comment TEXT DEFAULT '',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
 
     c.execute("""
-CREATE TABLE IF NOT EXISTS behavior_rules (
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-name TEXT UNIQUE NOT NULL,
-url_pattern TEXT NOT NULL,
-category TEXT DEFAULT '',
-is_regex INTEGER NOT NULL DEFAULT 0,
-scope_type TEXT DEFAULT 'all',
-scope_value TEXT DEFAULT '',
-window_minutes INTEGER NOT NULL DEFAULT 60,
-threshold_count INTEGER NOT NULL DEFAULT 10,
-is_enabled INTEGER NOT NULL DEFAULT 1,
-comment TEXT DEFAULT ''
-)""")
+    CREATE TABLE IF NOT EXISTS behavior_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    url_pattern TEXT NOT NULL,
+    category TEXT DEFAULT '',
+    is_regex INTEGER NOT NULL DEFAULT 0,
+    scope_type TEXT DEFAULT 'all',
+    scope_value TEXT DEFAULT '',
+    window_minutes INTEGER NOT NULL DEFAULT 60,
+    threshold_count INTEGER NOT NULL DEFAULT 10,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    comment TEXT DEFAULT ''
+    )""")
 
     c.execute("""
-CREATE TABLE IF NOT EXISTS access_events (
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-ts TEXT,
-username TEXT,
-client_ip TEXT,
-method TEXT,
-url TEXT,
-domain TEXT,
-result_code TEXT,
-bytes INTEGER DEFAULT 0
-)""")
+    CREATE TABLE IF NOT EXISTS access_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT,
+    username TEXT,
+    client_ip TEXT,
+    method TEXT,
+    url TEXT,
+    domain TEXT,
+    result_code TEXT,
+    bytes INTEGER DEFAULT 0
+    )""")
 
     defaults = {
         "access_log_path": str(DEFAULT_ACCESS_LOG),
@@ -1695,7 +2248,6 @@ bytes INTEGER DEFAULT 0
 
     conn.commit()
     conn.close()
-
 
 def table_to_rows(table: QTableWidget):
     headers = [table.horizontalHeaderItem(i).text() if table.horizontalHeaderItem(i) else f"col{i}" for i in range(table.columnCount())]
@@ -1723,7 +2275,6 @@ class LedLabel(QLabel):
     def set_yellow(self):
         self.setStyleSheet("background:#d5b12e;border-radius:9px;border:1px solid #555;")
 
-
 class BaseCrudTab(QWidget):
     def message(self, title, text):
         QMessageBox.information(self, title, text)
@@ -1738,10 +2289,9 @@ class BaseCrudTab(QWidget):
         for r, row in enumerate(rows):
             for c, val in enumerate(row):
                 table.setItem(r, c, QTableWidgetItem("" if val is None else str(val)))
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-
 
 class MplCanvas(FigureCanvas):
     def __init__(self):
@@ -1754,10 +2304,12 @@ class MplCanvas(FigureCanvas):
         self.figure.clear()
         self.ax = self.figure.add_subplot(111)
 
-
 class DashboardTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
+        
+        self.all_tables = []
+        
         root = QVBoxLayout()
         top = QHBoxLayout()
 
@@ -1786,19 +2338,20 @@ class DashboardTab(BaseCrudTab):
             b.clicked.connect(handler)
             btnhlay.addWidget(b)
         
-        
         root.addLayout(top)
         root.addLayout(btnhlay)
 
         stats = QHBoxLayout()
-        self.lbl_clients = QLabel("Aktive Clients: 0")
+        self.lbl_clients  = QLabel("Aktive Clients: 0")
         self.lbl_requests = QLabel("Requests: 0")
-        self.lbl_domains = QLabel("Domains: 0")
+        self.lbl_domains  = QLabel("Domains: 0")
         self.lbl_autosave = QLabel("Autosave: -")
-        self.lbl_reports = QLabel("Reports: -")
+        self.lbl_reports  = QLabel("Reports: -")
+        
         for w in [self.lbl_clients, self.lbl_requests, self.lbl_domains, self.lbl_autosave, self.lbl_reports]:
             stats.addWidget(w)
             stats.addSpacing(20)
+            
         stats.addStretch(1)
         root.addLayout(stats)
 
@@ -1825,8 +2378,6 @@ class DashboardTab(BaseCrudTab):
         try:
             if os.name == "nt":
                 startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
-            
                 p = subprocess.Popen(
                     ["sc", action, self.service_name()],
                     creationflags  = subprocess.CREATE_NO_WINDOW,
@@ -1872,8 +2423,6 @@ class DashboardTab(BaseCrudTab):
         try:
             if os.name == "nt":
                 startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
-            
                 p = subprocess.Popen(
                     [self.squid_binary(), "-k", "reconfigure", "-f", self.squid_conf_path()],
                     capture_output = True,
@@ -1907,9 +2456,8 @@ class DashboardTab(BaseCrudTab):
         try:
             if os.name == "nt":
                 startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
                 
-                p = subprocess.Popen(
+                p = subprocess.run(
                     [self.squid_binary(), "-k", "parse", "-f", self.squid_conf_path()],
                     capture_output = True,
                     text           = True,
@@ -1941,8 +2489,6 @@ class DashboardTab(BaseCrudTab):
         try:
             if os.name == "nt":
                 startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
-                
                 p = subprocess.Popen(
                     ["sc", "query", self.service_name()],
                     capture_output = True,
@@ -2014,14 +2560,17 @@ class DashboardTab(BaseCrudTab):
 class ReplacementPagesTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
+        
+        self.all_tables = []
+        
         root = QVBoxLayout()
         form = QHBoxLayout()
 
-        self.ed_name     = QLineEdit()
+        self.ed_name     = HoverFocusLineEdit()
         self.cb_category = QComboBox()
         self.cb_category.addItems([""] + URL_CATEGORIES)
-        self.ed_file     = QLineEdit()
-        self.ed_comment  = QLineEdit()
+        self.ed_file     = HoverFocusLineEdit()
+        self.ed_comment  = HoverFocusLineEdit()
         self.ed_comment.setMaximumWidth(500)
         self.chk_enabled = QCheckBox("Aktiv")
         self.chk_enabled.setChecked(True)
@@ -2054,18 +2603,15 @@ class ReplacementPagesTab(BaseCrudTab):
         root.addLayout(form2)
         root.addLayout(form3)
         
-        self.table = QTableWidget()
-        self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
-        
+        self.table = DarkCornerTableWidget(self)
+        self.table.setObjectName("table_replacement")
         self.table.itemSelectionChanged.connect(self.load_form)
         root.addWidget(self.table)
         self.setLayout(root)
+        
+        self.all_tables.append({"table_replacement", self.table})
+        #restore_all_table_widths(self)
+        
         self.load()
 
     def pick_file(self):
@@ -2123,15 +2669,18 @@ class ReplacementPagesTab(BaseCrudTab):
 class UrlFilterTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
+        
         root = QVBoxLayout()
         form = QHBoxLayout()
-
-        self.ed_pattern     = QLineEdit()
+        
+        self.all_tables = []
+        
+        self.ed_pattern     = HoverFocusLineEdit()
         self.pb_help        = QPushButton("Hilfe")
         self.cb_category    = QComboBox()
         self.cb_category.addItems(URL_CATEGORIES)
         self.cb_replacement = QComboBox()
-        self.ed_comment     = QLineEdit()
+        self.ed_comment     = HoverFocusLineEdit()
         self.ed_comment.setMaximumWidth(500)
         self.chk_regex      = QCheckBox("Regex")
         self.chk_enabled    = QCheckBox("Aktiv")
@@ -2139,9 +2688,10 @@ class UrlFilterTab(BaseCrudTab):
         
         form1 = QHBoxLayout()
         for w1 in [QLabel("Muster"     ), self.ed_pattern]:
-            if isinstance(w1, QLineEdit):
+            if isinstance(w1, HoverFocusLineEdit):
                 w1.setMaximumWidth(600)
             form1.addWidget(w1)
+            
         form1.addWidget(self.pb_help)
         form1.addStretch()
         
@@ -2194,19 +2744,16 @@ class UrlFilterTab(BaseCrudTab):
         nav.addStretch(1)
         root.addLayout(nav)
 
-        self.table = QTableWidget()
-        self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
-        
+        self.table = DarkCornerTableWidget(self)
+        self.table.setObjectName("table_urlfilter")
         self.table.itemSelectionChanged.connect(self.load_form)
         root.addWidget(self.table)
         self.setLayout(root)
         self.refresh_replacements()
+        
+        self.all_tables.append({"table_urlfilter", self.table})
+        #restore_all_table_widths(self)
+        
         self.load()
 
     def refresh_replacements(self):
@@ -2295,10 +2842,14 @@ class UrlFilterTab(BaseCrudTab):
 class GroupsTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
+        
+        self.all_tables = []
+        
         root = QVBoxLayout()
         form = QHBoxLayout()
-        self.ed_name     = QLineEdit()
-        self.ed_comment  = QLineEdit()
+        
+        self.ed_name     = HoverFocusLineEdit()
+        self.ed_comment  = HoverFocusLineEdit()
         self.chk_enabled = QCheckBox("Aktiv")
         self.chk_enabled.setChecked(True)
         for w in [QLabel("Gruppe"   ), self.ed_name,
@@ -2317,18 +2868,15 @@ class GroupsTab(BaseCrudTab):
         root.addLayout(form)
         root.addLayout(form2)
         
-        self.table = QTableWidget()
-        self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
-        
+        self.table = DarkCornerTableWidget(self)
+        self.table.setObjectName("table_groups")
         self.table.itemSelectionChanged.connect(self.load_form)
         root.addWidget(self.table)
         self.setLayout(root)
+        
+        self.all_tables.append({"table_groups", self.table})
+        #restore_all_table_widths(self)
+        
         self.load()
 
     def clear_form(self):
@@ -2375,13 +2923,19 @@ class GroupsTab(BaseCrudTab):
 class NetworksTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
+        
+        self.all_tables = []
+        
         root = QVBoxLayout()
         form = QHBoxLayout()
-        self.ed_name = QLineEdit()
-        self.ed_cidr = QLineEdit()
-        self.ed_comment = QLineEdit()
+        
+        self.ed_name     = HoverFocusLineEdit()
+        self.ed_cidr     = HoverFocusLineEdit()
+        self.ed_comment  = HoverFocusLineEdit()
+        
         self.chk_enabled = QCheckBox("Aktiv")
         self.chk_enabled.setChecked(True)
+        
         for w in [QLabel("Name"), self.ed_name, QLabel("CIDR"), self.ed_cidr, QLabel("Kommentar"), self.ed_comment, self.chk_enabled]:
             form.addWidget(w)
         
@@ -2397,18 +2951,15 @@ class NetworksTab(BaseCrudTab):
         root.addLayout(form)
         root.addLayout(form2)
         
-        self.table = QTableWidget()
-        self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
-        
+        self.table = DarkCornerTableWidget(self)
+        self.table.setObjectName("table_networks")
         self.table.itemSelectionChanged.connect(self.load_form)
         root.addWidget(self.table)
         self.setLayout(root)
+        
+        self.all_tables.append({"table_networks", self.table})
+        #restore_all_table_widths(self)
+        
         self.load()
 
     def clear_form(self):
@@ -2498,19 +3049,24 @@ class CheckableComboBox(QComboBox):
             item = self.model().item(row)
             if item.checkState() == Qt.Checked:
                 result.append(item.text())
+        WEEKDAY_STRING = convert_weekdays_from_combobox(self)
         return result
 
     def update_text(self):
         items = self.checked_items()
         self.lineEdit().setText(", ".join(items))
+        WEEKDAY_STRING = convert_weekdays_from_combobox(self)
 
 class TimeWindowsTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
+        
+        self.all_tables = []
+        
         root = QVBoxLayout()
         form = QHBoxLayout()
         
-        self.ed_name     = QLineEdit()
+        self.ed_name     = HoverFocusLineEdit()
         self.cb_weekdays = CheckableComboBox()
         self.cb_weekdays.add_check_item("Montag")
         self.cb_weekdays.add_check_item("Dienstag")
@@ -2522,7 +3078,7 @@ class TimeWindowsTab(BaseCrudTab):
 
         self.cb_start    = TimeComboBox()
         self.cb_end      = TimeComboBox()
-        self.ed_comment  = QLineEdit()
+        self.ed_comment  = HoverFocusLineEdit()
         
         self.chk_enabled = QCheckBox("Aktiv")
         self.chk_enabled.setChecked(True)
@@ -2547,43 +3103,82 @@ class TimeWindowsTab(BaseCrudTab):
         root.addLayout(form2)
         
         root.addWidget(QLabel("Beispiel: mon,tue,wed,thu,fri | 08:00 | 17:30"))
-        self.table = QTableWidget()
-        self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
-        
+
+        self.table = DarkCornerTableWidget(self)
+        self.table.setObjectName("table_timewindow")
         self.table.itemSelectionChanged.connect(self.load_form)
         root.addWidget(self.table)
         self.setLayout(root)
+        
+        self.all_tables.append({"table_timewindow", self.table})
+        #restore_all_table_widths(self)
+        
         self.load()
 
     def clear_form(self):
         update_selected_row_font(self.table)
+        WEEKDAY_STRING = ""
         self.ed_name.clear()
-        self.ed_weekdays.clear()
-        self.ed_start.clear()
-        self.ed_end.clear()
+        #self.ed_weekdays.clear()
+        #self.ed_start.clear()
+        #self.ed_end.clear()
         self.ed_comment.clear()
         self.chk_enabled.setChecked(True)
 
     def add_row(self):
-        DB.execute("INSERT INTO time_windows(name, weekdays, start_time, end_time, is_enabled, comment) VALUES(?,?,?,?,?,?)",
-                   (self.ed_name.text().strip(), self.ed_weekdays.text().strip(), self.ed_start.text().strip(),
-                    self.ed_end.text().strip(), 1 if self.chk_enabled.isChecked() else 0, self.ed_comment.text().strip()))
-        self.clear_form()
-        self.load()
+        content = ""
+        try:
+            try:
+                WEEKDAY_STRING = convert_weekdays_from_combobox(self.cb_weekdays)
+                
+                DB.execute("INSERT INTO time_windows(name, weekdays, start_time, end_time, is_enabled, comment) VALUES(?,?,?,?,?,?)",
+                          (self.ed_name.text().strip(),
+                           WEEKDAY_STRING, HOUR_START, HOUR_END,
+                           1 if self.chk_enabled.isChecked() else 0,
+                           self.ed_comment.text().strip()))
+                self.load()
+            # ------------------------------
+            # Datensatz bereits vorhanden ?
+            # ------------------------------
+            except sqlite3.IntegrityError as e:
+                content = "Datensatz bereits vorhanden."
+                #
+                conn = DB.conn()
+                cur  = conn.cursor()
+                cur  . rollback()
+                cur  . close()
+                conn . close()
+                #
+                raise Exception(content)
+            except sqlite3.OperationalError as e:
+                conn = DB.conn()
+                conn.close()
+                content = "Datenbank ist gesperrt."
+                raise Exception(content)
+        # ----------------------------------
+        # re-raised exception to save space
+        # ----------------------------------
+        except Exception as e:
+            dlg = ErrorMessage(
+                title    = "Laufzeitfehler",
+                message  = content,
+                log_path = LOG,
+                parent   = MAINWIN
+            )
+            dlg.exec_()
+            return False
 
     def update_selected(self):
         row = self.table.currentRow()
         if row < 0:
             return
+        WEEKDAY_STRING = convert_weekdays_from_combobox(self.cb_weekdays)
         DB.execute("UPDATE time_windows SET name=?, weekdays=?, start_time=?, end_time=?, is_enabled=?, comment=? WHERE id=?",
-                   (self.ed_name.text().strip(), self.ed_weekdays.text().strip(), self.ed_start.text().strip(),
-                    self.ed_end.text().strip(), 1 if self.chk_enabled.isChecked() else 0, self.ed_comment.text().strip(), item_text(self.table, row, 0)))
+                  (self.ed_name.text().strip(),
+                   WEEKDAY_STRING, HOUR_START, HOUR_END,
+                   1 if self.chk_enabled.isChecked() else 0,
+                   self.ed_comment.text().strip(),
+                   item_text(self.table, row, 0)))
         self.load()
 
     def delete_selected(self):
@@ -2593,19 +3188,27 @@ class TimeWindowsTab(BaseCrudTab):
         DB.execute("DELETE FROM time_windows WHERE id=?", (item_text(self.table, row, 0),))
         self.clear_form()
         self.load()
-
+    
     def load_form(self):
         row = self.table.currentRow()
         if row < 0:
             return
         update_selected_row_font(self.table)
-        self.ed_name.setText(item_text(self.table, row, 1))
-        self.ed_weekdays.setText(item_text(self.table, row, 2))
-        self.ed_start.setText(item_text(self.table, row, 3))
-        self.ed_end.setText(item_text(self.table, row, 4))
-        self.chk_enabled.setChecked(item_text(self.table, row, 5) == "1")
-        self.ed_comment.setText(item_text(self.table, row, 6))
 
+        deutsch = convert_weekdays_to_german(item_text(self.table, row, 2))
+        WEEKDAY_STRING = deutsch
+        
+        self.ed_name    .setText(item_text(self.table, row, 1))
+        self.ed_comment .setText(item_text(self.table, row, 6))
+        
+        HOUR_START = item_text(self.table, row, 3)
+        HOUR_END   = item_text(self.table, row, 4)
+        
+        #self.ed_start   .setText(item_text(self.table, row, 3))
+        #self.ed_end     .setText(item_text(self.table, row, 4))
+                
+        self.chk_enabled.setChecked(item_text(self.table, row, 5) == "1")
+    
     def load(self):
         rows = DB.fetchall("SELECT id, name, weekdays, start_time, end_time, is_enabled, comment FROM time_windows ORDER BY name")
         self.fill_table(self.table, ["ID", "Name", "Wochentage", "Von", "Bis", "Aktiv", "Kommentar"], rows)
@@ -2613,13 +3216,16 @@ class TimeWindowsTab(BaseCrudTab):
 class UsersTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
+        
+        self.all_tables = []
+        
         root = QVBoxLayout()
         form = QHBoxLayout()
         
-        self.ed_user     = QLineEdit()
-        self.ed_password = QLineEdit()
+        self.ed_user     = HoverFocusLineEdit()
+        self.ed_password = HoverFocusLineEdit()
         self.ed_password .setEchoMode(QLineEdit.Password)
-        self.ed_cert     = QLineEdit()
+        self.ed_cert     = HoverFocusLineEdit()
         self.cb_group    = QComboBox()
         self.cb_group    .setMaximumWidth(100)
         self.cb_network  = QComboBox()
@@ -2662,19 +3268,16 @@ class UsersTab(BaseCrudTab):
         root.addLayout(form3)
         root.addLayout(form4)
         
-        self.table = QTableWidget()
-        self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
-        
+        self.table = DarkCornerTableWidget(self)
+        self.table.setObjectName("table_user")
         self.table.itemSelectionChanged.connect(self.load_form)
         root.addWidget(self.table)
         self.setLayout(root)
         self.refresh_refs()
+        
+        self.all_tables.append({"table_user", self.table})
+        #restore_all_table_widths(self)
+        
         self.load()
 
     def refresh_refs(self):
@@ -2780,11 +3383,14 @@ class UsersTab(BaseCrudTab):
 class BehaviorRulesTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
+        
+        self.all_tables = []
+        
         root = QVBoxLayout()
         form = QHBoxLayout()
 
-        self.ed_name        = QLineEdit()
-        self.ed_pattern     = QLineEdit()
+        self.ed_name        = HoverFocusLineEdit()
+        self.ed_pattern     = HoverFocusLineEdit()
         self.cb_category    = QComboBox()
         self.cb_category.addItems([""] + URL_CATEGORIES)
         self.chk_regex      = QCheckBox("Regex")
@@ -2800,7 +3406,7 @@ class BehaviorRulesTab(BaseCrudTab):
         self.spin_threshold.setValue(10)
         self.chk_enabled    = QCheckBox("Aktiv")
         self.chk_enabled.setChecked(True)
-        self.ed_comment     = QLineEdit()
+        self.ed_comment     = HoverFocusLineEdit()
 
         self.cb_scope_type.currentTextChanged.connect(self.refresh_scope_values)
         self.refresh_scope_values()
@@ -2836,18 +3442,15 @@ class BehaviorRulesTab(BaseCrudTab):
         root.addLayout(form4)
         root.addLayout(form5)
         
-        self.table = QTableWidget()
-        self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
-        
+        self.table = DarkCornerTableWidget(self)
+        self.table.setObjectName("table_behavior")
         self.table.itemSelectionChanged.connect(self.load_form)
         root.addWidget(self.table)
         self.setLayout(root)
+        
+        self.all_tables.append({"table_behavior", self.table})
+        #restore_all_table_widths(self)
+        
         self.load()
 
     def refresh_scope_values(self):
@@ -2943,8 +3546,12 @@ class BehaviorRulesTab(BaseCrudTab):
 class LiveClientsTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
+        
+        self.all_tables = []
+        
         root = QVBoxLayout()
         top = QHBoxLayout()
+        
         self.spin_minutes = QSpinBox()
         self.spin_minutes.setRange(1, 1440)
         self.spin_minutes.setValue(30)
@@ -2956,14 +3563,11 @@ class LiveClientsTab(BaseCrudTab):
         top.addStretch(1)
         root.addLayout(top)
 
-        self.table = QTableWidget()
-        self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
+        self.table = DarkCornerTableWidget(self)
+        self.table.setObjectName("table_liveclients")
+
+        self.all_tables.append({"table_liveclients", self.table})
+        #restore_all_table_widths(self)
         
         root.addWidget(self.table)
         self.setLayout(root)
@@ -2997,16 +3601,23 @@ class LiveClientsTab(BaseCrudTab):
 class LogsTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
+        
+        self.all_tables = []
+        
         root = QVBoxLayout()
         top = QHBoxLayout()
-        self.ed_filter = QLineEdit()
+        
+        self.ed_filter  = HoverFocusLineEdit()
         self.spin_lines = QSpinBox()
         self.spin_lines.setRange(50, 10000)
         self.spin_lines.setValue(300)
+        
         btn_access = QPushButton("Access Log")
-        btn_cache = QPushButton("Cache Log")
-        btn_access.clicked.connect(lambda: self.load("access"))
-        btn_cache.clicked.connect(lambda: self.load("cache"))
+        btn_cache  = QPushButton("Cache Log")
+        
+        btn_access .clicked.connect(lambda: self.load("access"))
+        btn_cache  .clicked.connect(lambda: self.load("cache"))
+        
         top.addWidget(QLabel("Filter"))
         top.addWidget(self.ed_filter)
         top.addWidget(QLabel("Zeilen"))
@@ -3014,6 +3625,7 @@ class LogsTab(BaseCrudTab):
         top.addWidget(btn_access)
         top.addWidget(btn_cache)
         root.addLayout(top)
+        
         self.text = QTextEdit()
         self.text.setReadOnly(True)
         root.addWidget(self.text)
@@ -3036,6 +3648,7 @@ class StatisticsTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
         self.last_report_data = None
+        self.all_tables = []
 
         root = QVBoxLayout()
         controls = QHBoxLayout()
@@ -3091,36 +3704,23 @@ class StatisticsTab(BaseCrudTab):
         split = QSplitter()
         left = QWidget()
         
-        self.tbl_top_urls = QTableWidget()
-        self.tbl_top_urls.setAlternatingRowColors(True)
-        self.tbl_top_urls.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
-        
-        self.tbl_top_users = QTableWidget()
-        self.tbl_top_users.setAlternatingRowColors(True)
-        self.tbl_top_users.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
-        
-        self.tbl_top_domains = QTableWidget()
-        self.tbl_top_domains.setAlternatingRowColors(True)
-        self.tbl_top_domains.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
+        self.tbl_top_urls    = DarkCornerTableWidget(self)
+        self.tbl_top_users   = DarkCornerTableWidget(self)
+        self.tbl_top_domains = DarkCornerTableWidget(self)
         
         self.cas_top_urls    = QLabel("Top URLs")
         self.cas_top_users   = QLabel("Top Benutzer")
         self.cas_top_domains = QLabel("Top Domains")
+        
+        self.tbl_top_urls    .setObjectName("table_topurls")
+        self.tbl_top_users   .setObjectName("table_topusers")
+        self.tbl_top_domains .setObjectName("table_topdomains")
+        
+        self.all_tables.append({"table_topurls"   , self.tbl_top_urls   })
+        self.all_tables.append({"table_topusers"  , self.tbl_top_users  })
+        self.all_tables.append({"table_topdomains", self.tbl_top_domains})
+        
+        #restore_all_table_widths(self)
         
         # ----- Bereich oben -----
         oben_widget = QWidget()
@@ -3170,32 +3770,19 @@ class StatisticsTab(BaseCrudTab):
         right = QWidget()
         right_l = QVBoxLayout()
         
-        self.tbl_activity = QTableWidget()
-        self.tbl_activity.setAlternatingRowColors(True)
-        self.tbl_activity.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
+        self.tbl_activity = DarkCornerTableWidget(self)
+        self.tbl_behavior = DarkCornerTableWidget(self)
+        self.tbl_trend    = DarkCornerTableWidget(self)
         
-        self.tbl_behavior = QTableWidget()
-        self.tbl_behavior.setAlternatingRowColors(True)
-        self.tbl_behavior.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
+        self.tbl_activity .setObjectName("table_activity")
+        self.tbl_behavior .setObjectName("table_behavior2")
+        self.tbl_trend    .setObjectName("table_trend")
         
-        self.tbl_trend    = QTableWidget()
-        self.tbl_trend.setAlternatingRowColors(True)
-        self.tbl_trend.setStyleSheet(f"""
-        QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
-        QTableWidget {{
-        background-color: {AppMode.TableWidget_BackgroundColor};
-        alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
-        color: {AppMode.TableWidgetColor};}}""")
+        self.all_tables.append({"table_activity" , self.tbl_activity})
+        self.all_tables.append({"table_behavior2", self.tbl_behavior})
+        self.all_tables.append({"table_trend"    , self.tbl_trend   })
+        
+        #restore_all_table_widths(self)
         
         self.chart  = MplCanvas()
         self.report = QTextEdit()
@@ -3528,19 +4115,28 @@ h1, h2 {{ margin-top: 28px; }}
 class ConfigTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
-        root = QVBoxLayout()
-        form = QFormLayout()
+        
+        self.all_tables = []
+        
+        root  = QVBoxLayout()
+        form1 = QFormLayout()
+        form2 = QFormLayout()
 
-        self.ed_access_log = QLineEdit(DB.setting("access_log_path", str(DEFAULT_ACCESS_LOG)))
-        self.ed_cache_log = QLineEdit(DB.setting("cache_log_path", str(DEFAULT_CACHE_LOG)))
-        self.ed_service = QLineEdit(DB.setting("squid_service_name", "Squid"))
-        self.ed_binary = QLineEdit(DB.setting("squid_binary", "squid"))
-        self.ed_conf = QLineEdit(DB.setting("squid_conf_path", str(DEFAULT_SQUID_CONF)))
-        self.ed_python = QLineEdit(DB.setting("python_exe_path", "C:/Python311/python.exe"))
-        self.ed_report_dir = QLineEdit(DB.setting("report_output_dir", str(APP_DIR / "reports")))
+        self.ed_access_log = HoverFocusLineEdit(DB.setting("access_log_path", str(DEFAULT_ACCESS_LOG)))
+        self.ed_cache_log  = HoverFocusLineEdit(DB.setting("cache_log_path", str(DEFAULT_CACHE_LOG)))
+        self.ed_service    = HoverFocusLineEdit(DB.setting("squid_service_name", "Squid"))
+        self.ed_binary     = HoverFocusLineEdit(DB.setting("squid_binary", "squid"))
+        self.ed_conf       = HoverFocusLineEdit(DB.setting("squid_conf_path", str(DEFAULT_SQUID_CONF)))
+        self.ed_python     = HoverFocusLineEdit(DB.setting("python_exe_path", "C:/Python311/python.exe"))
+        self.ed_report_dir = HoverFocusLineEdit(DB.setting("report_output_dir", str(APP_DIR / "reports")))
+        self.ed_config_ini = HoverFocusLineEdit("squid.ini")
+        
         self.spin_autosave = QSpinBox()
         self.spin_autosave.setRange(1, 1440)
         self.spin_autosave.setValue(int(DB.setting("autosave_minutes", "15") or "15"))
+        
+        self.ck_silent = QCheckBox("Aus")
+        self.ck_silent.stateChanged.connect(self.ck_silent_state_changed)
 
         def browse_file(target, title, filt="Alle Dateien (*)"):
             path, _ = QFileDialog.getOpenFileName(self, title, str(APP_DIR), filt)
@@ -3564,20 +4160,31 @@ class ConfigTab(BaseCrudTab):
             w = QWidget()
             w.setLayout(row)
             return w
-
-        form.addRow("squid.conf", browse_widget(self.ed_conf, "squid.conf auswählen", "Squid Config (squid.conf);;Alle Dateien (*)"))
-        form.addRow("Python.exe", browse_widget(self.ed_python, "Python.exe auswählen", "Python (python.exe);;Ausführbare Dateien (*.exe);;Alle Dateien (*)"))
-        form.addRow("Access Log", browse_widget(self.ed_access_log, "access.log auswählen"))
-        form.addRow("Cache Log", browse_widget(self.ed_cache_log, "cache.log auswählen"))
-        form.addRow("Report-Ordner", browse_widget(self.ed_report_dir, "Report-Ordner wählen", is_dir=True))
-        form.addRow("Service Name", self.ed_service)
-        form.addRow("Squid Binary", self.ed_binary)
-        form.addRow("Autosave (Minuten)", self.spin_autosave)
-        root.addLayout(form)
+        
+        _layout = QHBoxLayout()
+        
+        form1.addRow("squid.conf"   , browse_widget(self.ed_conf, "squid.conf auswählen", "Squid Config (squid.conf);;Alle Dateien (*)"))
+        form1.addRow("Python.exe"   , browse_widget(self.ed_python, "Python.exe auswählen", "Python (python.exe);;Ausführbare Dateien (*.exe);;Alle Dateien (*)"))
+        form1.addRow("Access Log"   , browse_widget(self.ed_access_log, "access.log auswählen"))
+        form1.addRow("Cache Log"    , browse_widget(self.ed_cache_log, "cache.log auswählen"))
+        form1.addRow("Report-Ordner", browse_widget(self.ed_report_dir, "Report-Ordner wählen", is_dir=True))
+        
+        form1.addRow("Service Name" , self.ed_service)
+        form1.addRow("Squid Binary" , self.ed_binary)
+        
+        form1.addRow("Autosave (Minuten)", self.spin_autosave)
+        form1.addRow("Autosave (silent)" , self.ck_silent)
+        
+        form2.addRow("squid.ini", browse_widget(self.ed_config_ini, "squid.ini auswählen", "Einstellungen (squid.ini);;Alle Dateien (*)"))
+        
+        _layout.addLayout(form1)
+        _layout.addLayout(form2)
+        
+        root.addLayout(_layout)
 
         buttons = QHBoxLayout()
         for text, fn in [("Einstellungen speichern", self.save), ("squid.conf generieren", self.generate_config), ("Konfiguration testen", self.test_config)]:
-            b = QPushButton(text)
+            b = PillowButtonBlue(self, text)
             b.clicked.connect(fn)
             buttons.addWidget(b)
         buttons.addStretch(1)
@@ -3591,6 +4198,12 @@ class ConfigTab(BaseCrudTab):
         if conf_path.exists():
             self.text.setPlainText(conf_path.read_text(encoding="utf-8", errors="ignore"))
 
+    def ck_silent_state_changed(self, state):
+        if self.ck_silent.isChecked():
+            self.ck_silent.setText("An")
+        if not self.ck_silent.isChecked():
+            self.ck_silent.setText("Aus")
+    
     def save(self):
         DB.set_setting("access_log_path", self.ed_access_log.text().strip())
         DB.set_setting("cache_log_path", self.ed_cache_log.text().strip())
@@ -3675,8 +4288,6 @@ class ConfigTab(BaseCrudTab):
         try:
             if os.name == "nt":
                 startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= startupinfo.STARTF_USESHOWWINDOW
-                
                 p = subprocess.Popen(
                     [self.ed_binary.text().strip() or "squid", "-k", "parse", "-f", self.ed_conf.text().strip()],
                     capture_output = True,
@@ -3708,22 +4319,55 @@ class ConfigTab(BaseCrudTab):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Squid Control Center v8")
+        
+        self.setWindowTitle("Squid Control Center by (c) 2026 Jens Kallup - paule32")
         self.resize(1032, 720)
-
-        tabs = QTabWidget()
-        tabs.addTab(DashboardTab()        , "Dashboard")
-        tabs.addTab(UrlFilterTab()        , "URL Filter")
-        tabs.addTab(ReplacementPagesTab() , "Ersatz-Pages")
-        tabs.addTab(UsersTab()            , "Benutzer")
-        tabs.addTab(GroupsTab()           , "Gruppen")
-        tabs.addTab(NetworksTab()         , "Netzwerke")
-        tabs.addTab(TimeWindowsTab()      , "Zeitfenster")
-        tabs.addTab(BehaviorRulesTab()    , "Verhaltensmuster")
-        tabs.addTab(LiveClientsTab()      , "Live Clients")
-        tabs.addTab(LogsTab()             , "Logs")
-        tabs.addTab(StatisticsTab()       , "Statistiken")
-        tabs.addTab(ConfigTab()           , "Konfiguration")
+        self.settings = create_settings()
+        
+        MAINWIN = self
+        tabs    = QTabWidget()
+        
+        self.tab_Dashboard     = DashboardTab()
+        self.tab_UrlFilter     = UrlFilterTab()
+        self.tab_Replacement   = ReplacementPagesTab()
+        self.tab_Users         = UsersTab()
+        self.tab_Groups        = GroupsTab()
+        self.tab_Networks      = NetworksTab()
+        self.tab_TimeWindows   = TimeWindowsTab()
+        self.tab_BehaviorRules = BehaviorRulesTab()
+        self.tab_LiveClients   = LiveClientsTab()
+        self.tab_Logs          = LogsTab()
+        self.tab_Statistics    = StatisticsTab()
+        self.tab_Config        = ConfigTab()
+        
+        self.tab_list = [
+            self.tab_Dashboard,
+            self.tab_UrlFilter,
+            self.tab_Replacement,
+            self.tab_Users,
+            self.tab_Groups,
+            self.tab_Networks,
+            self.tab_TimeWindows,
+            self.tab_BehaviorRules,
+            self.tab_LiveClients,
+            self.tab_Logs,
+            self.tab_Statistics,
+            self.tab_Config,
+        ]
+        
+        tabs.addTab(self.tab_Dashboard     , "Dashboard")
+        tabs.addTab(self.tab_UrlFilter     , "URL Filter")
+        tabs.addTab(self.tab_Replacement   , "Ersatz-Pages")
+        tabs.addTab(self.tab_Users         , "Benutzer")
+        tabs.addTab(self.tab_Groups        , "Gruppen")
+        tabs.addTab(self.tab_Networks      , "Netzwerke")
+        tabs.addTab(self.tab_TimeWindows   , "Zeitfenster")
+        tabs.addTab(self.tab_BehaviorRules , "Verhaltensmuster")
+        tabs.addTab(self.tab_LiveClients   , "Live Clients")
+        tabs.addTab(self.tab_Logs          , "Logs")
+        tabs.addTab(self.tab_Statistics    , "Statistiken")
+        tabs.addTab(self.tab_Config        , "Konfiguration")
+        
         self.setCentralWidget(tabs)
 
         self.f1filter = F1Filter(self)
@@ -3731,11 +4375,42 @@ class MainWindow(QMainWindow):
         AppMode.dark = True
         self._apply_theme()
         
+        """for tab in self.tab_list:
+            for tabl in tab.all_tables:
+                table_name = list(tabl)[0]
+                table      = list(tabl)[1]
+                
+                if isinstance(table_name, DarkCornerTableWidget):
+                    table_name = list(tabl)[1]
+                    table      = list(tabl)[0]
+                
+                if table.parent.table is not None:
+                    print(table.parent.table)
+                    print("name: ", table_name, ", ", table)
+                """
+                
         self.autosave_timer = QTimer(self)
         self.autosave_timer.timeout.connect(self.autosave_everything)
         self.restart_autosave_timer()
         
         self._create_menubar()
+        self._create_statusbar()
+    
+    def closeEvent(self, event):
+        return
+        for tab in self.tab_list:
+            for tabl in tab.all_tables:
+                it = iter(tabl)
+                table_name = next(it, None)
+                table      = next(it, None)
+                print(table_name)
+                #if not isinstance(table_name, DarkCornerTableWidget):
+                save_table_column_widths(table, self.settings, table_name)
+        super().closeEvent(event)
+    
+    def _create_statusbar(self):
+        statusbar = self.statusBar()
+        statusbar.setFont(QFont("Arial", 10))
         
     def _create_menubar(self):
         menubar = self.menuBar()
@@ -3757,6 +4432,11 @@ class MainWindow(QMainWindow):
         action_ueber.triggered.connect(self.show_about)
         menu_hilfe.addAction(action_ueber)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if os.name == "nt":
+            enable_dark_title_bar(int(self.winId()))
+        
     def show_about(self):
         QMessageBox.about(
             self,
@@ -4024,7 +4704,6 @@ def main():
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    global MAINWIN
     MAINWIN = MainWindow()
     MAINWIN.show()
     sys.exit(app.exec_())

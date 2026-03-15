@@ -2153,6 +2153,9 @@ class DB:
 
     @staticmethod
     def set_setting(key: str, value: str):
+        if DB.conn is None:
+            DB.open(DB_PATH)
+            
         cur = DB.conn.cursor()
         cur.execute(
             "INSERT INTO settings(key, value) VALUES(?, ?) "
@@ -4357,7 +4360,7 @@ class ConfigTab(BaseCrudTab):
         
         self.spin_autosave = QSpinBox()
         self.spin_autosave.setRange(1, 1440)
-        self.spin_autosave.setValue(int(DB.setting("autosave_minutes", "15") or "15"))
+        self.spin_autosave.setValue(int(DB.setting("autosave_minutes", "1") or "15"))
         
         self.ck_silent = QCheckBox("Aus")
         self.ck_silent.stateChanged.connect(self.ck_silent_state_changed)
@@ -4608,10 +4611,8 @@ class MainWindow(QMainWindow):
             name = tab.objectName ()
             if name:
                 count = tab.columnCount()
-                print(name, count)
                 for col in range(0, count):
                     value = self._config.getint(name, f"col_{col}", fallback=20)
-                    print(value)
                     tab.setColumnWidth(col, int(value))
          
         self.autosave_timer = QTimer(self)

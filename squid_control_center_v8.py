@@ -59,7 +59,7 @@ from PyQt5.QtWidgets import (
     QSplitter, QTabWidget, QLabel, QPushButton, QLineEdit, QMessageBox, QAction,
     QTableWidget, QTableWidgetItem, QComboBox, QTextEdit, QCheckBox, QTabBar,
     QFileDialog, QSpinBox, QHeaderView, QAbstractItemView, QSizePolicy,
-    QDialog, QStyle, QTreeView, QStatusBar, QToolBar, QPlainTextEdit,
+    QDialog, QStyle, QTreeView, QStatusBar, QToolBar, QPlainTextEdit, QTableView,
     QRadioButton, QButtonGroup, QGroupBox, QScrollArea, 
 )
 from PyQt5.QtWebEngineWidgets import (
@@ -95,14 +95,57 @@ MAINWIN        = None
 # filter categories
 # ---------------------------------------------------------------------------
 URL_CATEGORIES = [
-    "FSK",
-    "nicht jugendfrei",
-    "Glücksspiel",
-    "Betrug",
-    "Scam",
-    "Gewalt",
-    "Sex",
-    "sonstiges",
+    "Adult Themes / Sexuality",
+    "Advertising",
+    "Alcohol / Tabacco",
+    "Arts / Society / Culture",
+    "Banking / Insurance / Finance",
+    "Blogs / Personal Sites",
+    "Business / Services / Industry",
+    "Classifields / Auctions",
+    "Content Delivery Networks",
+    "Cracks / Hacking / Illegal",
+    "Crypto Currency / Minning",
+    "Dating",
+    "Drugs",
+    "E-Commerce / Shopping",
+    "Education / Science / Research",
+    "Entertainment / Humor / Hobby",
+    "Expired and Parked Domains",
+    "Fashion / Beauty / Cosmetics",
+    "File Storage",
+    "Food / Dinning / Restaurants",
+    "Forums / Message Boards",
+    "Gambling",
+    "Games",
+    "Generative AI",
+    "Generic / Non categorized",
+    "Goverment",
+    "Hate / Discrimination / Violence",
+    "Health / Medicine / Fitness",
+    "Jobs / Employment / Career",
+    "Messaging / Chat",
+    "Music / Radio",
+    "Network Infrastructure",
+    "News / Media",
+    "Nudity / Pornography",
+    "P2P File Sharing",
+    "Photo Sharing",
+    "Politics",
+    "Proxy / Anonymizer",
+    "Real Estate / Home / Interior",
+    "Religious",
+    "Search Engines",
+    "Self Harm",
+    "Social Networking",
+    "Software / Technologie / Hardware",
+    "Sports",
+    "Streaming Video / Television",
+    "Transportation",
+    "Travel",
+    "User Tracking",
+    "Weapons",
+    "WebMail",
 ]
 
 CSS_PILLOW_BUTTON = f"""
@@ -724,11 +767,15 @@ class DarkCornerTableWidget(QTableWidget):
         self._corner_bg = "#202020"  # helleres Schwarz für linke obere Ecke
         self.parent = parent
         
+        # ------------------------------------------------------------
         # eigener vertikaler Header
+        # ------------------------------------------------------------
         self._vheader = IndicatorVerticalHeader(Qt.Vertical, self)
         self.setVerticalHeader(self._vheader)
         
+        # ------------------------------------------------------------
         #self._apply_styles()
+        # ------------------------------------------------------------
         self.setAlternatingRowColors(True)
         self.setStyleSheet(f"""
         QHeaderView::section {{ color: {AppMode.TableWidgetHeaderColor};}}
@@ -737,9 +784,34 @@ class DarkCornerTableWidget(QTableWidget):
         alternate-background-color: {AppMode.TableWidget_AlternateBackgroundColor};
         color: {AppMode.TableWidgetColor};}}""")
         
+        # ------------------------------------------------------------
         # Marker bei Zeilenwechsel anpassen
+        # ------------------------------------------------------------
         self.currentCellChanged.connect(self._on_current_cell_changed)
         self.itemSelectionChanged.connect(self._sync_indicator_from_selection)
+    
+    def mousePressEvent(self, event):
+        index = self.indexAt(event.pos())
+        
+        # ------------------------------------------------------------
+        # Nur wenn wirklich auf eine gültige Zelle geklickt wurde,
+        # normales Verhalten ausführen
+        # ------------------------------------------------------------
+        if index.isValid():
+            super().mousePressEvent(event)
+        else:
+            # --------------------------------------------------------
+            # Klick auf leere Fläche ignorieren:
+            # Auswahl bleibt erhalten
+            # --------------------------------------------------------
+            event.ignore()
+    
+    def mouseReleaseEvent(self, event):
+        index = self.indexAt(event.pos())
+        if index.isValid():
+            super().mouseReleaseEvent(event)
+        else:
+            event.ignore()
     
     def _apply_styles(self):
         self.setStyleSheet(f"""
@@ -2278,10 +2350,10 @@ class LedLabel(QLabel):
 class BaseCrudTab(QWidget):
     def message(self, title, text):
         QMessageBox.information(self, title, text)
-
+    
     def warn(self, title, text):
         QMessageBox.warning(self, title, text)
-
+    
     def fill_table(self, table, headers, rows):
         table.setColumnCount(len(headers))
         table.setHorizontalHeaderLabels(headers)
@@ -2304,6 +2376,183 @@ class MplCanvas(FigureCanvas):
         self.figure.clear()
         self.ax = self.figure.add_subplot(111)
 
+class MultiCheckComboBox(QComboBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self._updating_text = False
+        self._block_hide    = False
+        self._parent        = parent
+
+        self.setCurrentIndex(-1)
+        
+        model = QStandardItemModel(self)
+        model.setColumnCount(2)
+        model.setHorizontalHeaderLabels(["On", "Type"])
+        self.setModel(model)
+
+        self.view = QTableView(self)
+        self.view.setModel(model)
+        self.view.verticalHeader().hide()
+        self.view.setShowGrid(False)
+        self.view.setSelectionBehavior(QTableView.SelectRows)
+        self.view.setSelectionMode(QTableView.SingleSelection)
+        self.view.setAlternatingRowColors(True)
+        self.view.horizontalHeader().setStretchLastSection(True)
+        
+        # -----------------------------------------------------
+        # Spaltenbreiten festlegen
+        # -----------------------------------------------------
+        self.view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.view.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        
+        self.view.setColumnWidth(0,  42)
+        self.view.setColumnWidth(1, 242)
+        
+        # -----------------------------------------------------
+        # Erste Checkbox-Spalte max. 42 Pixel
+        # -----------------------------------------------------
+        self.view.horizontalHeader().setMinimumSectionSize(20)
+        self.view.horizontalHeader().resizeSection(0, 42)
+        
+        self.setView(self.view)
+        
+        # -----------------------------------------------------
+        # Oben in der ComboBox wird Spalte 1 angezeigt
+        # -----------------------------------------------------
+        self.setModelColumn(1)
+        
+        # -----------------------------------------------------
+        # Klicks im Popup behandeln
+        # -----------------------------------------------------
+        self.view.pressed.connect(self.on_view_pressed)
+        
+        # -----------------------------------------------------
+        # Anzeige-Text nicht editierbar, aber setzbar
+        # -----------------------------------------------------
+        self.setEditable(True)
+        self.lineEdit().setReadOnly(True)
+        
+        self.update_display_text()
+    
+    def showPopup(self):
+        self._block_hide = True
+        super().showPopup()
+        QTimer.singleShot(120, self._release_hide_block)
+        
+    def hidePopup(self):
+        if self._block_hide:
+            return
+        super().hidePopup()
+        if self._parent is not None:
+            if isinstance(self._parent, UrlFilterTab):
+                print("11111")
+                table  = self._parent.table
+                if table is not None:
+                    print("22222")
+                    table.selectRow(self._parent._saved_row)
+                    item   = self._parent.table.item(self._parent._saved_row, 2)
+                    checks = self._parent.cb_category.checked_items_to_bitmask()
+                    if item is not None:
+                        print(item.text())
+                        item.setText(str(checks))
+        
+    def add_row(self ,
+        left_checked : bool,
+        left_text    : str):
+        
+        item0 = QStandardItem()
+        item0.setCheckable(True)
+        item0.setCheckState(Qt.Checked if left_checked else Qt.Unchecked)
+        item0.setEditable(False)
+
+        item1 = QStandardItem(left_text)
+        item1.setEditable(False)
+
+        self.model().appendRow([item0, item1])
+
+    def on_view_pressed(self, index):
+        if not index.isValid():
+            return
+        
+        row = index.row()
+        col = index.column()
+        
+        # -----------------------------------------------------
+        # Popup offen halten
+        # -----------------------------------------------------
+        self._block_hide = True
+        
+        # -----------------------------------------------------
+        # Nur Checkbox-Spalten umschalten
+        # -----------------------------------------------------
+        if col in (0, 1):
+            item = self.model().item(row, 0)
+            if item is not None and item.isCheckable():
+                if item.checkState() == Qt.Checked:
+                    item.setCheckState(Qt.Unchecked)
+                else:
+                    item.setCheckState(Qt.Checked)
+        
+        self.lineEdit().clear()
+        
+        # -----------------------------------------------------
+        # Anzeige erst NACH der internen ComboBox-Verarbeitung
+        # setzen
+        # -----------------------------------------------------
+        QTimer.singleShot(0, self.update_display_text)
+        
+        # -----------------------------------------------------
+        # nach Eventloop wieder normales Verhalten erlauben
+        # -----------------------------------------------------
+        QTimer.singleShot(200, self._release_hide_block)
+    
+    def _release_hide_block(self):
+        self._block_hide = False
+    
+    # ---------------------------------------------------------
+    # Zeigt oben in der ComboBox eine Kurz-Zusammenfassung an.
+    # ---------------------------------------------------------
+    def update_display_text(self):
+        checks = self.checked_items_to_bitmask()
+        if checks > 0:
+            self.lineEdit().setText(str(checks))
+        else:
+            text = "(nichts gewählt)"
+            self.lineEdit().setText(text)
+    
+    # ---------------------------------------------------------
+    # Liest die Checkboxen aus Spalte 0 des Models
+    # und erzeugt einen Integer als Bitmaske.
+    # ---------------------------------------------------------
+    def checked_items_to_bitmask(self) -> int:
+        mask = 0
+        model = self.view.model()
+        
+        for row in range(model.rowCount()):
+            item = model.item(row, 0)
+            if item and item.isCheckable() and item.checkState() == Qt.Checked:
+                mask |= (1 << row)
+        
+        return mask
+    
+    # ---------------------------------------------------------
+    # Setzt anhand einer Bitmaske die Checkboxen in Spalte 0.
+    # ---------------------------------------------------------
+    def bitmask_to_checked_items(self, mask: int):
+        model = self.view.model()
+        
+        for row in range(model.rowCount()):
+            item = model.item(row, 0)
+            if item and item.isCheckable():
+                if mask & (1 << row):
+                    item.setCheckState(Qt.Checked)
+                else:
+                    item.setCheckState(Qt.Unchecked)
+        
+        self.lineEdit().clear()
+        self.update_display_text()
+        
 class DashboardTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
@@ -2567,8 +2816,8 @@ class ReplacementPagesTab(BaseCrudTab):
         form = QHBoxLayout()
 
         self.ed_name     = HoverFocusLineEdit()
-        self.cb_category = QComboBox()
-        self.cb_category.addItems([""] + URL_CATEGORIES)
+        self.cb_category = MultiCheckComboBox()
+        #self.cb_category.addItems([""] + URL_CATEGORIES)
         self.ed_file     = HoverFocusLineEdit()
         self.ed_comment  = HoverFocusLineEdit()
         self.ed_comment.setMaximumWidth(500)
@@ -2655,13 +2904,12 @@ class ReplacementPagesTab(BaseCrudTab):
         if row < 0:
             return
         update_selected_row_font(self.table)
-        self.ed_name.setText(item_text(self.table, row, 1))
-        idx = self.cb_category.findText(item_text(self.table, row, 2))
-        self.cb_category.setCurrentIndex(idx if idx >= 0 else 0)
-        self.ed_file.setText(item_text(self.table, row, 3))
-        self.chk_enabled.setChecked(item_text(self.table, row, 4) == "1")
-        self.ed_comment.setText(item_text(self.table, row, 5))
-
+        self.ed_name     .setText   (item_text(self.table, row, 1))
+        self.cb_category .setText   (item_text(self.table, row, 2))
+        self.ed_file     .setText   (item_text(self.table, row, 3))
+        self.chk_enabled .setChecked(item_text(self.table, row, 4) == "1")
+        self.ed_comment  .setText   (item_text(self.table, row, 5))
+        
     def load(self):
         rows = DB.fetchall("SELECT id, name, category, file_path, is_enabled, comment FROM replacement_pages ORDER BY name")
         self.fill_table(self.table, ["ID", "Name", "Kategorie", "Datei", "Aktiv", "Kommentar"], rows)
@@ -2673,12 +2921,20 @@ class UrlFilterTab(BaseCrudTab):
         root = QVBoxLayout()
         form = QHBoxLayout()
         
+        self._saved_row = 0
+        self._saved_col = 0
+        
         self.all_tables = []
         
         self.ed_pattern     = HoverFocusLineEdit()
         self.pb_help        = QPushButton("Hilfe")
-        self.cb_category    = QComboBox()
-        self.cb_category.addItems(URL_CATEGORIES)
+        self.cb_category    = MultiCheckComboBox(self)
+        self.cb_category.setMinimumWidth(300)
+        
+        for text in URL_CATEGORIES:
+            self.cb_category.add_row(False, text)
+        #self.cb_category.addItems(URL_CATEGORIES)
+        
         self.cb_replacement = QComboBox()
         self.ed_comment     = HoverFocusLineEdit()
         self.ed_comment.setMaximumWidth(500)
@@ -2756,6 +3012,10 @@ class UrlFilterTab(BaseCrudTab):
         
         self.load()
 
+    def cb_category_checks(self) -> str:
+        checks = str(self.cb_category.checked_items_to_bitmask())
+        return checks
+        
     def refresh_replacements(self):
         current = self.cb_replacement.currentText()
         self.cb_replacement.clear()
@@ -2767,20 +3027,28 @@ class UrlFilterTab(BaseCrudTab):
 
     def clear_form(self):
         update_selected_row_font(self.table)
+        
         self.ed_pattern.clear()
         self.ed_comment.clear()
-        self.chk_regex.setChecked(False)
+        
+        self.chk_regex  .setChecked(False)
         self.chk_enabled.setChecked(True)
+        
+        self.cb_category.bitmask_to_checked_items(0)
         self.cb_category.setCurrentIndex(0)
+        
         self.cb_replacement.setCurrentIndex(0)
 
     def add_row(self):
         DB.execute("""
             INSERT INTO blocked_urls(pattern, category, is_regex, is_enabled, replacement_page_id, comment)
-            VALUES(?,?,?,?,?,?)
-        """, (self.ed_pattern.text().strip(), self.cb_category.currentText(),
-              1 if self.chk_regex.isChecked() else 0, 1 if self.chk_enabled.isChecked() else 0,
-              self.cb_replacement.currentData(), self.ed_comment.text().strip()))
+            VALUES(?,?,?,?,?,?)""",
+            (self.ed_pattern.text().strip(),
+             self.cb_category_checks(),
+             1 if self.chk_regex.isChecked  () else 0,
+             1 if self.chk_enabled.isChecked() else 0,
+             self.cb_replacement.currentData(),
+             self.ed_comment.text().strip()))
         self.clear_form()
         self.load()
 
@@ -2790,11 +3058,15 @@ class UrlFilterTab(BaseCrudTab):
             return
         DB.execute("""
             UPDATE blocked_urls
-               SET pattern=?, category=?, is_regex=?, is_enabled=?, replacement_page_id=?, comment=?
-             WHERE id=?
-        """, (self.ed_pattern.text().strip(), self.cb_category.currentText(),
-              1 if self.chk_regex.isChecked() else 0, 1 if self.chk_enabled.isChecked() else 0,
-              self.cb_replacement.currentData(), self.ed_comment.text().strip(), item_text(self.table, row, 0)))
+            SET pattern=?, category=?, is_regex=?, is_enabled=?, replacement_page_id=?, comment=?
+            WHERE id=?""",
+            (self.ed_pattern.text().strip(),
+             self.cb_category_checks(),
+             1 if self.chk_regex.isChecked  () else 0,
+             1 if self.chk_enabled.isChecked() else 0,
+             self.cb_replacement.currentData(),
+             self.ed_comment.text().strip(),
+             item_text(self.table, row, 0)))
         self.load()
 
     def delete_selected(self):
@@ -2805,19 +3077,35 @@ class UrlFilterTab(BaseCrudTab):
         self.clear_form()
         self.load()
 
-    def load_form(self):
+    def load_form(self) -> bool:
         row = self.table.currentRow()
         if row < 0:
             return
+        col = self.table.currentColumn()
+        
+        self._saved_row = row
+        self._saved_col = col
+        
         update_selected_row_font(self.table)
-        self.ed_pattern.setText(item_text(self.table, row, 1))
-        idx = self.cb_category.findText(item_text(self.table, row, 2))
-        self.cb_category.setCurrentIndex(idx if idx >= 0 else 0)
-        self.chk_regex.setChecked(item_text(self.table, row, 3) == "1")
+        self.ed_pattern  .setText(item_text(self.table, row, 1))
+        
+        text = item_text(self.table, row, 2)[:32]
+        text = text.strip()
+        
+        if not text:
+            raise RuntimeError("Url-Filter Kategorie-String ist leer.")
+        
+        self.cb_category.lineEdit().setText(text)
+        self.cb_category.bitmask_to_checked_items(int(text))
+        
+        self.chk_regex  .setChecked(item_text(self.table, row, 3) == "1")
         self.chk_enabled.setChecked(item_text(self.table, row, 4) == "1")
+        
         idx = self.cb_replacement.findText(item_text(self.table, row, 5))
         self.cb_replacement.setCurrentIndex(idx if idx >= 0 else 0)
         self.ed_comment.setText(item_text(self.table, row, 6))
+        
+        return True
 
     def export_file(self):
         rows = DB.fetchall("SELECT pattern FROM blocked_urls WHERE is_enabled=1 ORDER BY id")
@@ -2828,15 +3116,14 @@ class UrlFilterTab(BaseCrudTab):
 
     def load(self):
         self.refresh_replacements()
-        limit = int(self.limit_combo.currentText())
+        limit  = int(self.limit_combo.currentText())
         offset = int(self.offset_spin.value())
-        rows = DB.fetchall("""
-            SELECT b.id, b.pattern, b.category, b.is_regex, b.is_enabled, COALESCE(r.name,''), b.comment, b.created_at
-              FROM blocked_urls b
-         LEFT JOIN replacement_pages r ON r.id=b.replacement_page_id
-          ORDER BY b.id
-             LIMIT ? OFFSET ?
-        """, (limit, offset))
+        rows   = DB.fetchall("""
+        SELECT b.id, b.pattern, b.category, b.is_regex, b.is_enabled, COALESCE(r.name,''), b.comment, b.created_at
+        FROM blocked_urls b
+        LEFT JOIN replacement_pages r ON r.id=b.replacement_page_id
+        ORDER BY b.id
+        LIMIT ? OFFSET ?""", (limit, offset))
         self.fill_table(self.table, ["ID", "Pattern", "Kategorie", "Regex", "Aktiv", "Ersatz-Page", "Kommentar", "Erstellt"], rows)
 
 class GroupsTab(BaseCrudTab):
@@ -3391,8 +3678,8 @@ class BehaviorRulesTab(BaseCrudTab):
 
         self.ed_name        = HoverFocusLineEdit()
         self.ed_pattern     = HoverFocusLineEdit()
-        self.cb_category    = QComboBox()
-        self.cb_category.addItems([""] + URL_CATEGORIES)
+        self.cb_category    = MultiCheckComboBox()
+        #self.cb_category.addItems([""] + URL_CATEGORIES)
         self.chk_regex      = QCheckBox("Regex")
         self.cb_scope_type  = QComboBox()
         self.cb_scope_type.addItems(["Alle", "Benutzer", "Gruppe"])

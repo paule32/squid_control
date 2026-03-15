@@ -1,18 +1,21 @@
 
 --- PYTHON UNCAUGHT EXCEPTION ---
 Traceback (most recent call last):
-  File "T:\VM\VPN\squid\squid_control_center_v8.py", line 4712, in <module>
-    main()
-    ~~~~^^
-  File "T:\VM\VPN\squid\squid_control_center_v8.py", line 4707, in main
-    MAINWIN = MainWindow()
-  File "T:\VM\VPN\squid\squid_control_center_v8.py", line 4387, in __init__
-    if table.parent.table is not None:
-       ^^^^^^^^^^^^^^^^^^
-AttributeError: 'StatisticsTab' object has no attribute 'table'
+  File "T:\VM\VPN\squid\squid_control_center_v8.py", line 2434, in hidePopup
+    self._parent.self.update_selected()
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'UrlFilterTab' object has no attribute 'self'
 Windows fatal exception: access violation
 
-Current thread 0x00003904 (most recent call first):
+Current thread 0x00004624 (most recent call first):
   <no Python frame>
+base=T:\VM\VPN\squid
+QtWebEngineProcess=[WindowsPath('T:/VM/VPN/squid/temp/_internal/PyQt5/Qt5/bin/QtWebEngineProcess.exe'), WindowsPath('T:/VM/VPN/squid/dist/venv/Lib/site-packages/PyQt5/Qt5/bin/QtWebEngineProcess.exe')]
+base=T:\VM\VPN\squid
+QtWebEngineProcess=[WindowsPath('T:/VM/VPN/squid/temp/_internal/PyQt5/Qt5/bin/QtWebEngineProcess.exe'), WindowsPath('T:/VM/VPN/squid/dist/venv/Lib/site-packages/PyQt5/Qt5/bin/QtWebEngineProcess.exe')]
+base=T:\VM\VPN\squid
+QtWebEngineProcess=[WindowsPath('T:/VM/VPN/squid/temp/_internal/PyQt5/Qt5/bin/QtWebEngineProcess.exe'), WindowsPath('T:/VM/VPN/squid/dist/venv/Lib/site-packages/PyQt5/Qt5/bin/QtWebEngineProcess.exe')]
+base=T:\VM\VPN\squid
+QtWebEngineProcess=[WindowsPath('T:/VM/VPN/squid/temp/_internal/PyQt5/Qt5/bin/QtWebEngineProcess.exe'), WindowsPath('T:/VM/VPN/squid/dist/venv/Lib/site-packages/PyQt5/Qt5/bin/QtWebEngineProcess.exe')]
 base=T:\VM\VPN\squid
 QtWebEngineProcess=[WindowsPath('T:/VM/VPN/squid/temp/_internal/PyQt5/Qt5/bin/QtWebEngineProcess.exe'), WindowsPath('T:/VM/VPN/squid/dist/venv/Lib/site-packages/PyQt5/Qt5/bin/QtWebEngineProcess.exe')]

@@ -24,6 +24,7 @@ import subprocess
 import shutil
 import hashlib
 import tempfile
+import configparser
 
 import traceback    # debug
 import time
@@ -49,7 +50,7 @@ from html.parser     import HTMLParser
 
 from PyQt5.QtCore    import (
     QObject, Qt, QTimer, qInstallMessageHandler, QEvent, QSortFilterProxyModel,
-    QUrl, QPoint, QSettings,
+    QUrl, QPoint,
 )
 from PyQt5.QtGui     import (
     QStandardItemModel, QStandardItem, QPalette, QColor, QFont,
@@ -90,6 +91,8 @@ HOUR_START     = "00:00"
 HOUR_END       = "00:00"
 
 MAINWIN        = None
+
+all_tables     = []
 
 # ---------------------------------------------------------------------------
 # filter categories
@@ -567,56 +570,8 @@ def convert_weekdays_to_german(text: str) -> str:
     
     return ", ".join(result_list)
 
-def create_settings() -> QSettings:
-    return QSettings(INI_FILE, QSettings.IniFormat)
-
 def config_exists() -> bool:
     return Path(INI_FILE).exists()
-
-def save_table_column_widths(table, settings: QSettings, table_name: str):
-    return
-    try:
-        settings.beginGroup(f"tables/{table_name}")
-        settings.setValue("column_count", table.columnCount())
-        
-        for obj in self.tab_list:
-            for tabl in tab.all_tables:
-                it = iter(tabl)
-                table_name = next(it, None)
-                table      = next(it, None)
-                restore_table_column_widths(table, self.settings, table_name)
-                
-        if table.columnCount() > 0:
-            for col in range(0, table.columnCount()+1):
-                settings.setValue(f"col_{col}", table.columnWidth(col))
-            
-        settings.endGroup()
-    except Exception as e:
-        pass
-
-def restore_table_column_widths(table, settings: QSettings, table_name: str):
-    settings.beginGroup(f"tables/{table_name}")
-    saved_count = settings.value("column_count", None)
-    
-    if saved_count is not None:
-        saved_count = int(saved_count.strip())
-        for col in range(0, saved_count):
-            value = settings.value(f"tables/{table_name}\\col_{col}", None)
-            if value is not None:
-                value = int(value.strip())
-                #print("cnt: ", saved_count, ", ", value)
-                table.setColumnWidth(col, value)
-            
-    settings.endGroup()
-
-def restore_all_table_widths(self):
-    for table_name, table in self.all_tables:
-        restore_table_column_widths(table, MAINWIN.settings, table_name)
-
-def save_all_table_widths(self):
-    for table_name, table in self.all_tables:
-        save_table_column_widths(table, self.settings, table_name)
-    self.settings.sync()
 
 def update_selected_row_font(table):
     # zuerst alle Items normal setzen
@@ -765,7 +720,7 @@ class DarkCornerTableWidget(QTableWidget):
         super().__init__(rows, cols, parent)
         
         self._corner_bg = "#202020"  # helleres Schwarz für linke obere Ecke
-        self.parent = parent
+        self._parent    = parent
         
         # ------------------------------------------------------------
         # eigener vertikaler Header
@@ -787,7 +742,7 @@ class DarkCornerTableWidget(QTableWidget):
         # ------------------------------------------------------------
         # Marker bei Zeilenwechsel anpassen
         # ------------------------------------------------------------
-        self.currentCellChanged.connect(self._on_current_cell_changed)
+        self.currentCellChanged  .connect(self._on_current_cell_changed)
         self.itemSelectionChanged.connect(self._sync_indicator_from_selection)
     
     def mousePressEvent(self, event):
@@ -836,7 +791,12 @@ class DarkCornerTableWidget(QTableWidget):
             }}
         """)
 
-    def _on_current_cell_changed(self, currentRow, currentColumn, previousRow, previousColumn):
+    def _on_current_cell_changed(self,
+        currentRow,
+        currentColumn,
+        previousRow,
+        previousColumn):
+        
         self._vheader.setIndicatorRow(currentRow)
 
     def _sync_indicator_from_selection(self):
@@ -2446,10 +2406,8 @@ class MultiCheckComboBox(QComboBox):
         super().hidePopup()
         if self._parent is not None:
             if isinstance(self._parent, UrlFilterTab):
-                print("11111")
                 table  = self._parent.table
                 if table is not None:
-                    print("22222")
                     table.selectRow(self._parent._saved_row)
                     item   = self._parent.table.item(self._parent._saved_row, 2)
                     checks = self._parent.cb_category.checked_items_to_bitmask()
@@ -2556,8 +2514,6 @@ class MultiCheckComboBox(QComboBox):
 class DashboardTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
-        
-        self.all_tables = []
         
         root = QVBoxLayout()
         top = QHBoxLayout()
@@ -2810,17 +2766,16 @@ class ReplacementPagesTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
         
-        self.all_tables = []
-        
         root = QVBoxLayout()
         form = QHBoxLayout()
 
         self.ed_name     = HoverFocusLineEdit()
         self.cb_category = MultiCheckComboBox()
-        #self.cb_category.addItems([""] + URL_CATEGORIES)
         self.ed_file     = HoverFocusLineEdit()
+
         self.ed_comment  = HoverFocusLineEdit()
         self.ed_comment.setMaximumWidth(500)
+
         self.chk_enabled = QCheckBox("Aktiv")
         self.chk_enabled.setChecked(True)
 
@@ -2858,7 +2813,7 @@ class ReplacementPagesTab(BaseCrudTab):
         root.addWidget(self.table)
         self.setLayout(root)
         
-        self.all_tables.append({"table_replacement", self.table})
+        all_tables.append(self.table)
         #restore_all_table_widths(self)
         
         self.load()
@@ -2923,8 +2878,6 @@ class UrlFilterTab(BaseCrudTab):
         
         self._saved_row = 0
         self._saved_col = 0
-        
-        self.all_tables = []
         
         self.ed_pattern     = HoverFocusLineEdit()
         self.pb_help        = QPushButton("Hilfe")
@@ -3005,11 +2958,11 @@ class UrlFilterTab(BaseCrudTab):
         self.table.itemSelectionChanged.connect(self.load_form)
         root.addWidget(self.table)
         self.setLayout(root)
-        self.refresh_replacements()
         
-        self.all_tables.append({"table_urlfilter", self.table})
+        all_tables.append(self.table)
         #restore_all_table_widths(self)
         
+        self.refresh_replacements()
         self.load()
 
     def cb_category_checks(self) -> str:
@@ -3130,8 +3083,6 @@ class GroupsTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
         
-        self.all_tables = []
-        
         root = QVBoxLayout()
         form = QHBoxLayout()
         
@@ -3161,7 +3112,7 @@ class GroupsTab(BaseCrudTab):
         root.addWidget(self.table)
         self.setLayout(root)
         
-        self.all_tables.append({"table_groups", self.table})
+        all_tables.append(self.table)
         #restore_all_table_widths(self)
         
         self.load()
@@ -3211,8 +3162,6 @@ class NetworksTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
         
-        self.all_tables = []
-        
         root = QVBoxLayout()
         form = QHBoxLayout()
         
@@ -3244,7 +3193,7 @@ class NetworksTab(BaseCrudTab):
         root.addWidget(self.table)
         self.setLayout(root)
         
-        self.all_tables.append({"table_networks", self.table})
+        all_tables.append(self.table)
         #restore_all_table_widths(self)
         
         self.load()
@@ -3348,8 +3297,6 @@ class TimeWindowsTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
         
-        self.all_tables = []
-        
         root = QVBoxLayout()
         form = QHBoxLayout()
         
@@ -3397,7 +3344,7 @@ class TimeWindowsTab(BaseCrudTab):
         root.addWidget(self.table)
         self.setLayout(root)
         
-        self.all_tables.append({"table_timewindow", self.table})
+        all_tables.append(self.table)
         #restore_all_table_widths(self)
         
         self.load()
@@ -3504,8 +3451,6 @@ class UsersTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
         
-        self.all_tables = []
-        
         root = QVBoxLayout()
         form = QHBoxLayout()
         
@@ -3562,7 +3507,7 @@ class UsersTab(BaseCrudTab):
         self.setLayout(root)
         self.refresh_refs()
         
-        self.all_tables.append({"table_user", self.table})
+        all_tables.append(self.table)
         #restore_all_table_widths(self)
         
         self.load()
@@ -3671,8 +3616,6 @@ class BehaviorRulesTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
         
-        self.all_tables = []
-        
         root = QVBoxLayout()
         form = QHBoxLayout()
 
@@ -3735,7 +3678,7 @@ class BehaviorRulesTab(BaseCrudTab):
         root.addWidget(self.table)
         self.setLayout(root)
         
-        self.all_tables.append({"table_behavior", self.table})
+        all_tables.append(self.table)
         #restore_all_table_widths(self)
         
         self.load()
@@ -3834,8 +3777,6 @@ class LiveClientsTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
         
-        self.all_tables = []
-        
         root = QVBoxLayout()
         top = QHBoxLayout()
         
@@ -3853,7 +3794,7 @@ class LiveClientsTab(BaseCrudTab):
         self.table = DarkCornerTableWidget(self)
         self.table.setObjectName("table_liveclients")
 
-        self.all_tables.append({"table_liveclients", self.table})
+        all_tables.append(self.table)
         #restore_all_table_widths(self)
         
         root.addWidget(self.table)
@@ -3888,8 +3829,6 @@ class LiveClientsTab(BaseCrudTab):
 class LogsTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
-        
-        self.all_tables = []
         
         root = QVBoxLayout()
         top = QHBoxLayout()
@@ -3935,10 +3874,10 @@ class StatisticsTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
         self.last_report_data = None
-        self.all_tables = []
 
-        root = QVBoxLayout()
+        root     = QVBoxLayout()
         controls = QHBoxLayout()
+
         self.spin_minutes = QSpinBox()
         self.spin_minutes.setRange(5, 43200)
         self.spin_minutes.setValue(60)
@@ -3999,13 +3938,13 @@ class StatisticsTab(BaseCrudTab):
         self.cas_top_users   = QLabel("Top Benutzer")
         self.cas_top_domains = QLabel("Top Domains")
         
-        self.tbl_top_urls    .setObjectName("table_topurls")
-        self.tbl_top_users   .setObjectName("table_topusers")
-        self.tbl_top_domains .setObjectName("table_topdomains")
+        self.tbl_top_urls    .setObjectName("table_top_urls")
+        self.tbl_top_users   .setObjectName("table_top_users")
+        self.tbl_top_domains .setObjectName("table_top_domains")
         
-        self.all_tables.append({"table_topurls"   , self.tbl_top_urls   })
-        self.all_tables.append({"table_topusers"  , self.tbl_top_users  })
-        self.all_tables.append({"table_topdomains", self.tbl_top_domains})
+        all_tables.append(self.tbl_top_urls   )
+        all_tables.append(self.tbl_top_users  )
+        all_tables.append(self.tbl_top_domains)
         
         #restore_all_table_widths(self)
         
@@ -4065,9 +4004,9 @@ class StatisticsTab(BaseCrudTab):
         self.tbl_behavior .setObjectName("table_behavior2")
         self.tbl_trend    .setObjectName("table_trend")
         
-        self.all_tables.append({"table_activity" , self.tbl_activity})
-        self.all_tables.append({"table_behavior2", self.tbl_behavior})
-        self.all_tables.append({"table_trend"    , self.tbl_trend   })
+        all_tables.append(self.tbl_activity)
+        all_tables.append(self.tbl_behavior)
+        all_tables.append(self.tbl_trend   )
         
         #restore_all_table_widths(self)
         
@@ -4403,8 +4342,6 @@ class ConfigTab(BaseCrudTab):
     def __init__(self):
         super().__init__()
         
-        self.all_tables = []
-        
         root  = QVBoxLayout()
         form1 = QFormLayout()
         form2 = QFormLayout()
@@ -4607,9 +4544,11 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         
+        self._config =    configparser.ConfigParser()
+        self._config.read(INI_FILE, encoding="utf-8")
+
         self.setWindowTitle("Squid Control Center by (c) 2026 Jens Kallup - paule32")
         self.resize(1032, 720)
-        self.settings = create_settings()
         
         MAINWIN = self
         tabs    = QTabWidget()
@@ -4662,20 +4601,19 @@ class MainWindow(QMainWindow):
         AppMode.dark = True
         self._apply_theme()
         
-        """for tab in self.tab_list:
-            for tabl in tab.all_tables:
-                table_name = list(tabl)[0]
-                table      = list(tabl)[1]
-                
-                if isinstance(table_name, DarkCornerTableWidget):
-                    table_name = list(tabl)[1]
-                    table      = list(tabl)[0]
-                
-                if table.parent.table is not None:
-                    print(table.parent.table)
-                    print("name: ", table_name, ", ", table)
-                """
-                
+        # ----------------------------------------------------
+        # on start-up: set the table widths from older session
+        # ----------------------------------------------------
+        for tab in all_tables:
+            name = tab.objectName ()
+            if name:
+                count = tab.columnCount()
+                print(name, count)
+                for col in range(0, count):
+                    value = self._config.getint(name, f"col_{col}", fallback=20)
+                    print(value)
+                    tab.setColumnWidth(col, int(value))
+         
         self.autosave_timer = QTimer(self)
         self.autosave_timer.timeout.connect(self.autosave_everything)
         self.restart_autosave_timer()
@@ -4684,15 +4622,21 @@ class MainWindow(QMainWindow):
         self._create_statusbar()
     
     def closeEvent(self, event):
-        return
-        for tab in self.tab_list:
-            for tabl in tab.all_tables:
-                it = iter(tabl)
-                table_name = next(it, None)
-                table      = next(it, None)
-                print(table_name)
-                #if not isinstance(table_name, DarkCornerTableWidget):
-                save_table_column_widths(table, self.settings, table_name)
+        # ----------------------------------------------------
+        # on shur-down: save the table widths ...
+        # ----------------------------------------------------
+        for tab in all_tables:
+            name = tab.objectName ()
+            if name:
+                count = tab.columnCount()
+                if name not in self._config:
+                    self._config[name] = {}
+                for col in range(0, count):
+                    width = tab.columnWidth(col)
+                    self._config[name][f"col_{col}"] = f"{width}"
+        with open(INI_FILE, "w", encoding="utf-8") as ini:
+            self._config.write(ini)
+            
         super().closeEvent(event)
     
     def _create_statusbar(self):

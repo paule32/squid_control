@@ -2169,13 +2169,13 @@ def init_db():
     conn = DB.conn()
     c = conn.cursor()
 
-    c.execute("""
+    c.execute(f"""
     CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
     )""")
 
-    c.execute("""
+    c.execute(f"""
     CREATE TABLE IF NOT EXISTS groups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
@@ -2183,7 +2183,7 @@ def init_db():
     comment TEXT DEFAULT ''
     )""")
 
-    c.execute("""
+    c.execute(f"""
     CREATE TABLE IF NOT EXISTS networks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
@@ -2192,7 +2192,7 @@ def init_db():
     comment TEXT DEFAULT ''
     )""")
 
-    c.execute("""
+    c.execute(f"""
     CREATE TABLE IF NOT EXISTS time_windows (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
@@ -2203,7 +2203,7 @@ def init_db():
     comment TEXT DEFAULT ''
     )""")
 
-    c.execute("""
+    c.execute(f"""
     CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
@@ -2217,7 +2217,7 @@ def init_db():
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )""")
 
-    c.execute("""
+    c.execute(f"""
     CREATE TABLE IF NOT EXISTS replacement_pages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
@@ -2227,7 +2227,7 @@ def init_db():
     comment TEXT DEFAULT ''
     )""")
 
-    c.execute("""
+    c.execute(f"""
     CREATE TABLE IF NOT EXISTS blocked_urls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     pattern TEXT NOT NULL,
@@ -2239,7 +2239,7 @@ def init_db():
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )""")
 
-    c.execute("""
+    c.execute(f"""
     CREATE TABLE IF NOT EXISTS behavior_rules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
@@ -2254,7 +2254,7 @@ def init_db():
     comment TEXT DEFAULT ''
     )""")
 
-    c.execute("""
+    c.execute(f"""
     CREATE TABLE IF NOT EXISTS access_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts TEXT,
@@ -3547,9 +3547,9 @@ class UsersTab(BaseCrudTab):
         self.cb_time.setCurrentIndex(0)
 
     def add_row(self):
-        DB.execute("""
-            INSERT INTO users(username, password_hash, cert_fingerprint, is_enabled, is_blocked, group_id, network_id, time_window_id)
-            VALUES(?,?,?,?,?,?,?,?)
+        DB.execute(f"""
+        INSERT INTO users(username, password_hash, cert_fingerprint, is_enabled, is_blocked, group_id, network_id, time_window_id) 
+        VALUES(?,?,?,?,?,?,?,?)
         """, (self.ed_user.text().strip(),
               hash_password(self.ed_password.text().strip()) if self.ed_password.text().strip() else "",
               self.ed_cert.text().strip(), 1 if self.chk_enabled.isChecked() else 0,
@@ -3565,8 +3565,8 @@ class UsersTab(BaseCrudTab):
         password_hash = item_text(self.table, row, 8)
         if self.ed_password.text().strip():
             password_hash = hash_password(self.ed_password.text().strip())
-        DB.execute("""
-            UPDATE users SET username=?, password_hash=?, cert_fingerprint=?, is_enabled=?, is_blocked=?, group_id=?, network_id=?, time_window_id=? WHERE id=?
+        DB.execute(f"""
+        UPDATE users SET username=?, password_hash=?, cert_fingerprint=?, is_enabled=?, is_blocked=?, group_id=?, network_id=?, time_window_id=? WHERE id=?
         """, (self.ed_user.text().strip(), password_hash, self.ed_cert.text().strip(),
               1 if self.chk_enabled.isChecked() else 0, 1 if self.chk_blocked.isChecked() else 0,
               self.cb_group.currentData(), self.cb_network.currentData(), self.cb_time.currentData(), item_text(self.table, row, 0)))
@@ -3604,7 +3604,7 @@ class UsersTab(BaseCrudTab):
 
     def load(self):
         self.refresh_refs()
-        rows = DB.fetchall("""
+        rows = DB.fetchall(f"""
             SELECT u.id, u.username, COALESCE(g.name,''), COALESCE(n.name,''), COALESCE(t.name,''),
                    u.is_blocked, u.is_enabled, u.created_at, u.password_hash, u.cert_fingerprint
               FROM users u
@@ -3715,9 +3715,9 @@ class BehaviorRulesTab(BaseCrudTab):
         self.ed_comment.clear()
 
     def add_row(self):
-        DB.execute("""
-            INSERT INTO behavior_rules(name, url_pattern, category, is_regex, scope_type, scope_value, window_minutes, threshold_count, is_enabled, comment)
-            VALUES(?,?,?,?,?,?,?,?,?,?)
+        DB.execute(f"""
+        INSERT INTO behavior_rules(name, url_pattern, category, is_regex, scope_type, scope_value, window_minutes, threshold_count, is_enabled, comment)
+        VALUES(?,?,?,?,?,?,?,?,?,?)
         """, (self.ed_name.text().strip(), self.ed_pattern.text().strip(), self.cb_category.currentText(),
               1 if self.chk_regex.isChecked() else 0, self.cb_scope_type.currentText(), self.cb_scope_value.currentText(),
               self.spin_window.value(), self.spin_threshold.value(), 1 if self.chk_enabled.isChecked() else 0,
@@ -3729,10 +3729,10 @@ class BehaviorRulesTab(BaseCrudTab):
         row = self.table.currentRow()
         if row < 0:
             return
-        DB.execute("""
-            UPDATE behavior_rules
-               SET name=?, url_pattern=?, category=?, is_regex=?, scope_type=?, scope_value=?, window_minutes=?, threshold_count=?, is_enabled=?, comment=?
-             WHERE id=?
+        DB.execute(f"""
+        UPDATE behavior_rules
+        SET name=?, url_pattern=?, category=?, is_regex=?, scope_type=?, scope_value=?, window_minutes=?, threshold_count=?, is_enabled=?, comment=?
+        WHERE id=?
         """, (self.ed_name.text().strip(), self.ed_pattern.text().strip(), self.cb_category.currentText(),
               1 if self.chk_regex.isChecked() else 0, self.cb_scope_type.currentText(), self.cb_scope_value.currentText(),
               self.spin_window.value(), self.spin_threshold.value(), 1 if self.chk_enabled.isChecked() else 0,
@@ -4207,12 +4207,12 @@ class StatisticsTab(BaseCrudTab):
     def load(self):
         data = self.build_report()
         self.last_report_data = data
-        self.fill_table(self.tbl_top_urls, ["URL", "Anzahl"], data["top_urls"])
-        self.fill_table(self.tbl_top_users, ["Benutzer/IP", "Anzahl"], data["top_users"])
+        self.fill_table(self.tbl_top_urls   , ["URL", "Anzahl"], data["top_urls"])
+        self.fill_table(self.tbl_top_users  , ["Benutzer/IP", "Anzahl"], data["top_users"])
         self.fill_table(self.tbl_top_domains, ["Domain", "Anzahl", "Bytes"], data["top_domains"])
-        self.fill_table(self.tbl_activity, ["Zeit", "Benutzer", "IP", "Methode", "Domain", "URL", "Bytes", "Result"], data["latest_rows"])
-        self.fill_table(self.tbl_behavior, ["Regel", "Kategorie", "Scope", "Wert", "Fenster", "Threshold", "Treffer", "Akteure"], data["behavior_rows"])
-        self.fill_table(self.tbl_trend, ["Bucket", "Requests", "Akteure", "Bytes"], data["trend_rows"])
+        self.fill_table(self.tbl_activity   , ["Zeit", "Benutzer", "IP", "Methode", "Domain", "URL", "Bytes", "Result"], data["latest_rows"])
+        self.fill_table(self.tbl_behavior   , ["Regel", "Kategorie", "Scope", "Wert", "Fenster", "Threshold", "Treffer", "Akteure"], data["behavior_rows"])
+        self.fill_table(self.tbl_trend      , ["Bucket", "Requests", "Akteure", "Bytes"], data["trend_rows"])
         self.report.setPlainText(data["report_text"])
 
     def current_chart_data(self):
@@ -4314,25 +4314,18 @@ h1, h2 {{ margin-top: 28px; }}
 <body>
 <h1>Squid Proxy Report</h1>
 <p class="small">Erzeugt: {escape(self.last_report_data['generated_at'])} | Zeitraum: {self.last_report_data['range_minutes']} Minuten | Trend-Bucket: {self.last_report_data['bucket_minutes']} Minuten</p>
-
 <h2>Kurzreport</h2>
 <pre>{escape(self.last_report_data['report_text'])}</pre>
-
 <h2>Top URLs</h2>
 {html_table(["URL", "Anzahl"], self.last_report_data["top_urls"])}
-
 <h2>Top Benutzer</h2>
 {html_table(["Benutzer/IP", "Anzahl"], self.last_report_data["top_users"])}
-
 <h2>Top Domains</h2>
 {html_table(["Domain", "Anzahl", "Bytes"], self.last_report_data["top_domains"])}
-
 <h2>Letzte Aktivitäten</h2>
 {html_table(["Zeit", "Benutzer", "IP", "Methode", "Domain", "URL", "Bytes", "Result"], self.last_report_data["latest_rows"])}
-
 <h2>Verhaltensmuster Treffer</h2>
 {html_table(["Regel", "Kategorie", "Scope", "Wert", "Fenster", "Threshold", "Treffer", "Akteure"], self.last_report_data["behavior_rows"])}
-
 <h2>Trend</h2>
 {html_table(["Bucket", "Requests", "Akteure", "Bytes"], self.last_report_data["trend_rows"])}
 </body>
@@ -4432,20 +4425,23 @@ class ConfigTab(BaseCrudTab):
             self.ck_silent.setText("Aus")
     
     def save(self):
-        DB.set_setting("access_log_path", self.ed_access_log.text().strip())
-        DB.set_setting("cache_log_path", self.ed_cache_log.text().strip())
-        DB.set_setting("squid_service_name", self.ed_service.text().strip())
-        DB.set_setting("squid_binary", self.ed_binary.text().strip())
-        DB.set_setting("squid_conf_path", self.ed_conf.text().strip())
-        DB.set_setting("python_exe_path", self.ed_python.text().strip())
-        DB.set_setting("report_output_dir", self.ed_report_dir.text().strip())
-        DB.set_setting("autosave_minutes", str(self.spin_autosave.value()))
-        DB.set_setting("last_autosave", now_iso())
-        self.message("Einstellungen", "Gespeichert.")
+        DB.set_setting("access_log_path"   , self.ed_access_log.text().strip())
+        DB.set_setting("cache_log_path"    , self.ed_cache_log .text().strip())
+        DB.set_setting("squid_service_name", self.ed_service   .text().strip())
+        DB.set_setting("squid_binary"      , self.ed_binary    .text().strip())
+        DB.set_setting("squid_conf_path"   , self.ed_conf      .text().strip())
+        DB.set_setting("python_exe_path"   , self.ed_python    .text().strip())
+        DB.set_setting("report_output_dir" , self.ed_report_dir.text().strip())
+        
+        DB.set_setting("autosave_minutes"  , str(self.spin_autosave.value()))
+        DB.set_setting("last_autosave"     , now_iso())
+        
+        self.message("Einstellungen"       , "Gespeichert.")
 
     def generate_config(self):
         self.save()
         conf_path = Path(self.ed_conf.text().strip() or str(DEFAULT_SQUID_CONF))
+        print(conf_path)
         py = self.ed_python.text().strip() or "C:/Python311/python.exe"
         authp = (APP_DIR / "basic_db_auth.py").as_posix()
         aclp = (APP_DIR / "db_acl_helper.py").as_posix()
@@ -4608,13 +4604,13 @@ class MainWindow(QMainWindow):
         # on start-up: set the table widths from older session
         # ----------------------------------------------------
         for tab in all_tables:
-            name = tab.objectName ()
+            name = tab.objectName()
             if name:
                 count = tab.columnCount()
                 for col in range(0, count):
                     value = self._config.getint(name, f"col_{col}", fallback=20)
                     tab.setColumnWidth(col, int(value))
-         
+        
         self.autosave_timer = QTimer(self)
         self.autosave_timer.timeout.connect(self.autosave_everything)
         self.restart_autosave_timer()
@@ -4893,9 +4889,9 @@ def ensure_demo_data():
         gid = DB.fetchall("SELECT id FROM groups WHERE name='Mitarbeiter'")[0][0]
         nid = DB.fetchall("SELECT id FROM networks WHERE name='LAN'")[0][0]
         tid = DB.fetchall("SELECT id FROM time_windows WHERE name='Arbeitszeit'")[0][0]
-        DB.execute("""
-            INSERT INTO users(username, password_hash, cert_fingerprint, is_enabled, is_blocked, group_id, network_id, time_window_id)
-            VALUES(?,?,?,?,?,?,?,?)
+        DB.execute(f"""
+        INSERT INTO users(username,password_hash,cert_fingerprint,is_enabled,is_blocked,group_id,network_id,time_window_id)
+        VALUES(?,?,?,?,?,?,?,?)
         """, ("admin", hash_password("admin"), "", 1, 0, gid, nid, tid))
 
     template = APP_DIR / "blocked_template.html"
@@ -4911,10 +4907,9 @@ def ensure_demo_data():
         DB.execute("INSERT INTO blocked_urls(pattern, category, is_regex, is_enabled, replacement_page_id, comment) VALUES('casino', 'Glücksspiel', 0, 1, ?, 'Demo')", (rid,))
 
     if not DB.fetchall("SELECT id FROM behavior_rules LIMIT 1"):
-        DB.execute("""
-            INSERT INTO behavior_rules(name, url_pattern, category, is_regex, scope_type, scope_value, window_minutes, threshold_count, is_enabled, comment)
-            VALUES('Häufige Social-Media-Aufrufe', 'facebook.com', 'FSK', 0, 'all', '', 60, 3, 1, 'Demo-Regel')
-        """)
+        DB.execute(f"""
+        INSERT INTO behavior_rules(name,url_pattern,category,is_regex,scope_type,scope_value,window_minutes,threshold_count,is_enabled,comment)
+        VALUES('Häufige Social-Media-Aufrufe','facebook.com','FSK',0,'all','',60,3,1,'Demo-Regel')""")
 
     if not DEFAULT_ACCESS_LOG.exists():
         sample = [
